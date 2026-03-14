@@ -6,10 +6,11 @@ const ScanResult = require("../models/ScanResult");
 const axios = require("axios");
 const buildStrictPrompt = require("../services/generateChatPrompt");
 const Domain = require("../models/Domain");
+const Chat = require("../models/ChatBot");
 require("dotenv").config();
 
 
-//router.use(authMiddleware);
+router.use(authMiddleware);
 //ask a question
 router.post("/chat", async (req, res) => {
   try {
@@ -90,7 +91,19 @@ router.post("/chat", async (req, res) => {
 
     const answer = llmResponse.data.choices[0].message.content;
 
-    res.json({ answer });
+    // Save chat in DB
+    const chat = await Chat.create({
+      scanId,
+      question,
+      answer,
+      askedBy: req.user._id
+    });
+
+    res.json({
+      question,
+      answer,
+      chatId: chat._id
+    });
 
   } catch (error) {
 
@@ -103,4 +116,21 @@ router.post("/chat", async (req, res) => {
   }
 });
 
+//get all chats for a scan
+router.get("/:scanId", async (req, res) => {
+  try {
+    const { scanId } = req.params;
+
+    const chats = await Chat.find({ scanId })
+      .sort({ createdAt: 1 })
+      .populate("askedBy", "name email");
+
+    res.json(chats);
+  } catch (error) {
+    console.error("Chat error:", error);
+    res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
 module.exports = router;

@@ -18,7 +18,7 @@ const generateRecommendation = require("../services/generateRecommendation");
 const runWithConcurrency = require("../services/runWithConcurrency");
 const { computeEnvScore, combineScores } = require("../services/scoring");
 // Apply authentication to all scan routes
-//router.use(authMiddleware);
+router.use(authMiddleware);
 
 /**
  * @route POST /api/scan
