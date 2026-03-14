@@ -22,6 +22,20 @@ router.use(authMiddleware);
  * @description Adds a new root domain to the monitoring system.
  * @body {string} domainName - The domain to track (e.g., example.com).
  * @returns {Object} 200 - The created Domain document.
+ * 
+ * @example
+ * // Input:
+ * // {
+ * //   "domainName": "example.com"
+ * // }
+ * //
+ * // Output:
+ * // {
+ * //   "domainName": "example.com",
+ * //   "_id": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //   "createdAt": "2023-09-01T12:00:00.000Z",
+ * //   "__v": 0
+ * // }
  */
 router.post("/", async (req, res) => {
   try {
@@ -38,6 +52,17 @@ router.post("/", async (req, res) => {
  * @route GET /api/domains
  * @description Retrieves all registered domains.
  * @returns {Array<Object>} 200 - List of all Domain documents.
+ * 
+ * @example
+ * // Output:
+ * // [
+ * //   {
+ * //     "_id": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //     "domainName": "example.com",
+ * //     "createdAt": "2023-09-01T12:00:00.000Z",
+ * //     "__v": 0
+ * //   }
+ * // ]
  */
 router.get("/", async (req, res) => {
   try {
@@ -58,6 +83,38 @@ router.get("/", async (req, res) => {
  * @param {string} domainId - Target Domain ID.
  * @returns {Object} 200 - Summary object including asset counts, PQC readiness, risks, and LLM recommendation.
  * @returns {Error} 404 - Domain not found.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "domain": "example.com",
+ * //   "assets": {
+ * //     "total_assets": 10,
+ * //     "scanned_assets": 10
+ * //   },
+ * //   "pqc_readiness": {
+ * //     "pqc_ready_assets": 2,
+ * //     "migration_ready_assets": 5,
+ * //     "legacy_crypto_assets": 3,
+ * //     "average_score": 0.55
+ * //   },
+ * //   "risks": {
+ * //     "weak_cipher_assets": 1
+ * //   },
+ * //   "tls_distribution": {
+ * //     "TLSv1.3": 8,
+ * //     "TLSv1.2": 2
+ * //   },
+ * //   "recommendation": {
+ * //     "_id": "64f3d4e5f6a7b8c9d0e1f2g3",
+ * //     "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //     "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
+ * //     "riskLevel": "MEDIUM",
+ * //     "migrationStrategy": "Migrate remaining TLS 1.2 servers...",
+ * //     "recommendedPqcKex": "ML-KEM-768",
+ * //     "recommendedPqcSignature": "CRYSTALS-Dilithium"
+ * //   }
+ * // }
  */
 router.get("/:domainId/summary", async (req, res) => {
   try {
@@ -170,6 +227,18 @@ router.get("/:domainId/summary", async (req, res) => {
  * @description Extracts a unique list of all cryptographic algorithms (KEX, Signatures, Ciphers) used across a domain.
  * @param {string} domainId - Target Domain ID.
  * @returns {Object} 200 - Object containing domainId and the list of unique algorithms.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //   "algorithms": [
+ * //     "X25519",
+ * //     "RSA-PSS",
+ * //     "TLS_AES_256_GCM_SHA384",
+ * //     "ML-KEM-768"
+ * //   ]
+ * // }
  */
 router.get("/:domainId/crypto-inventory", async (req, res) => {
   try {

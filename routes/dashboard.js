@@ -20,6 +20,15 @@ router.use(authMiddleware);
  * Includes total counts, PQC-ready assets (score >= 0.8), and high-risk domains.
  * @returns {Object} 200 - Stats object containing totalDomains, totalAssets, highRiskDomains, and pqcReadyAssets.
  * @returns {Error} 500 - Aggregation failure.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "totalDomains": 5,
+ * //   "totalAssets": 120,
+ * //   "highRiskDomains": 2,
+ * //   "pqcReadyAssets": 15
+ * // }
  */
 router.get("/stats", async (req, res) => {
     try {

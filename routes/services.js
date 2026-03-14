@@ -19,6 +19,18 @@ router.use(authMiddleware);
  * @param {string} id - The MongoDB ID of the Asset.
  * @returns {Array<Object>} 200 - List of Service documents.
  * @returns {Error} 404 - Asset not found.
+ * 
+ * @example
+ * // Output:
+ * // [
+ * //   {
+ * //     "_id": "64f2c3d4e5f6a7b8c9d0e1f2",
+ * //     "assetId": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //     "port": 443,
+ * //     "protocolName": "HTTPS",
+ * //     "__v": 0
+ * //   }
+ * // ]
  */
 router.get("/:id/services", async (req, res) => {
     try {

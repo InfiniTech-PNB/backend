@@ -22,6 +22,14 @@
  * @property {string} pqcSignature - Post-Quantum Signature algorithm (if any).
  * @property {boolean} hybridPqc - Whether hybrid PQC is active.
  * @property {number} pqcReadyScore - Calculated PQC readiness (0-1).
+ * @property {Object} business_context - Business context for risk scoring.
+ * @property {number} business_context.asset_criticality - Asset criticality (0-9).
+ * @property {number} business_context.confidentiality_weight - Confidentiality weight (0-10).
+ * @property {number} business_context.integrity_weight - Integrity weight (0-10).
+ * @property {number} business_context.availability_weight - Availability weight (0-10).
+ * @property {number} business_context.sla_requirement - SLA requirement (0-10).
+ * @property {number} business_context.remediation_difficulty - Remediation difficulty (0-10).
+ * @property {number} business_context.dependent_services - Number of dependent services (0-10).
  */
 
 const mongoose = require("mongoose");
@@ -64,7 +72,57 @@ const ScanResultSchema = new mongoose.Schema({
   pqcSignature: String,
   hybridPqc: Boolean,
 
-  pqcReadyScore: Number
+  pqcReadyScore: {
+    type: Number,
+    default: 0
+  },
+
+  // Business Context for Risk Scoring
+  business_context: {
+
+    asset_criticality: {
+      type: Number,
+      min: 0,
+      max: 9
+    },
+
+    confidentiality_weight: {
+      type: Number,
+      min: 0,
+      max: 10
+    },
+
+    integrity_weight: {
+      type: Number,
+      min: 0,
+      max: 10
+    },
+
+    availability_weight: {
+      type: Number,
+      min: 0,
+      max: 10
+    },
+
+    sla_requirement: {
+      type: Number,
+      min: 0,
+      max: 10
+    },
+
+    remediation_difficulty: {
+      type: Number,
+      min: 0,
+      max: 10
+    },
+
+    dependent_services: {
+      type: Number,
+      min: 0,
+      max: 10
+    }
+
+  }
 });
 
 module.exports = mongoose.model("ScanResult", ScanResultSchema);

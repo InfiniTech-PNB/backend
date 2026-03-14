@@ -3,7 +3,6 @@
  * @description Routes for initiating and managing cryptographic scans.
  * Coordinates between Python scanner service and ML scoring service.
  */
-
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middlewares/authMiddleware");
@@ -28,125 +27,209 @@ router.use(authMiddleware);
  * @body {string} [scanType="soft"] - Type of scan to perform.
  * @body {Array<string>} assets - List of Asset IDs to scan.
  * @returns {Object} 200 - Scan summary and ID.
+ * 
+ * @example
+ * // Input:
+ * // {
+ * //   "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //   "scanType": "deep",
+ * //   "assets": [
+ * //     { "assetId": "64f1b2c3d4e5f6a7b8c9d0e1", "business_context": { "asset_criticality": 8 } }
+ * //   ]
+ * // }
+ * //
+ * // Output:
+ * // {
+ * //   "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
+ * //   "results": [
+ * //     { "host": "www.example.com", "port": 443, "tls_version": "TLSv1.3", ... }
+ * //   ]
+ * // }
  */
 router.post("/", async (req, res) => {
-    try {
-        const { domainId, scanType, assets } = req.body;
-        if (!domainId || !assets || assets.length === 0) {
-            return res.status(400).json({
-                message: "domainId and assets are required"
-            });
-        }
-        
-        // Create the scan record
-        const scan = await Scan.create({
-            domainId,
-            scanType: scanType || "soft",
-            assets,
-            status: "pending",
-            startedAt: new Date()
-        });
+  try {
+    const { domainId, scanType, assets } = req.body;
 
-        const selectedAssets = await Asset.find({ _id: { $in: assets } });
-        if (!selectedAssets.length) {
-            return res.status(404).json({ message: "Assets not found" });
-        }
-
-        const assetMap = {};
-        selectedAssets.forEach(asset => { assetMap[asset.host] = asset._id; });
-
-        // Get associated services for these assets
-        const services = await Service.find({ assetId: { $in: assets } });
-        const serviceMap = {};
-        services.forEach(service => {
-            if (!serviceMap[service.assetId]) serviceMap[service.assetId] = [];
-            serviceMap[service.assetId].push({
-                port: service.port,
-                protocol_name: service.protocolName
-            });
-        });
-
-        const scannerAssets = selectedAssets.map(asset => ({
-            host: asset.host,
-            ip: asset.ip,
-            services: serviceMap[asset._id] || []
-        }));
-
-        // Trigger Python Scanner Service
-        const response = await axios.post("http://localhost:8000/scan", {
-            assets: scannerAssets,
-            scan_type: scanType || "soft"
-        });
-        const data = response.data;
-
-        const resultsToInsert = [];
-
-        // For each result, derive ML features and get a PQC score
-        for (const result of data.results) {
-            let score = null;
-            try {
-                const mlFeatures = deriveMLFeatures(result);
-                // Call Python ML scoring service
-                const mlResponse = await fetch("http://localhost:9000/pqc-score", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ features: mlFeatures })
-                });
-                const mlData = await mlResponse.json();
-                score = mlData.scores ? mlData.scores[0] : null;
-            } catch (err) {
-                console.error("ML scoring failed for host:", result.host, err);
-            }
-
-            resultsToInsert.push({
-                scanId: scan._id,
-                domainId: domainId,
-                assetId: assetMap[result.host],
-                host: result.host,
-                ip: result.ip,
-                port: result.port,
-                protocol: result.protocol,
-                tlsVersion: result.tls_version,
-                cipher: result.cipher,
-                keyExchange: result.key_exchange,
-                signatureAlgorithm: result.signature_algorithm,
-                supportedTlsVersions: result.supported_tls_versions,
-                cipherSuites: result.cipher_suites,
-                weakCiphers: result.weak_ciphers,
-                keySize: result.key_size,
-                issuer: result.issuer,
-                expires: result.expires,
-                pfsSupported: result.pfs_supported,
-                vulnerabilities: result.vulnerabilities,
-                selfSigned: result.self_signed,
-                pqcKeyExchange: result.pqc_key_exchange,
-                pqcSignature: result.pqc_signature,
-                hybridPqc: result.hybrid_pqc,
-                pqcReadyScore: score
-            });
-        }
-
-        // Persist results and complete scan
-        await ScanResult.insertMany(resultsToInsert);
-        scan.status = "completed";
-        scan.completedAt = new Date();
-        await scan.save();
-
-        res.json({
-            scanId: scan._id,
-            results: data.results
-        });
-    } catch (error) {
-        console.error("Error fetching scans:", error);
-        res.status(500).json({ message: error.message });
+    if (!domainId || !assets || assets.length === 0) {
+      return res.status(400).json({
+        message: "domainId and assets are required"
+      });
     }
-});
 
+    // Create scan record
+    const scan = await Scan.create({
+      domainId,
+      scanType: scanType || "soft",
+      assets: assets.map(a => a.assetId),
+      status: "pending",
+      startedAt: new Date()
+    });
+
+    // Extract assetIds
+    const assetIds = assets.map(a => a.assetId);
+
+    const selectedAssets = await Asset.find({ _id: { $in: assetIds } });
+
+    if (!selectedAssets.length) {
+      return res.status(404).json({ message: "Assets not found" });
+    }
+
+    // Map host -> assetId
+    const assetMap = {};
+    selectedAssets.forEach(asset => {
+      assetMap[asset.host] = asset._id;
+    });
+
+    // Map assetId -> business context (admin inputs)
+    const contextMap = {};
+    assets.forEach(a => {
+      contextMap[a.assetId] = a.business_context || {};
+    });
+
+    // Get services
+    const services = await Service.find({ assetId: { $in: assetIds } });
+
+    const serviceMap = {};
+    services.forEach(service => {
+      if (!serviceMap[service.assetId]) serviceMap[service.assetId] = [];
+
+      serviceMap[service.assetId].push({
+        port: service.port,
+        protocol_name: service.protocolName
+      });
+    });
+
+    const scannerAssets = selectedAssets.map(asset => ({
+      host: asset.host,
+      ip: asset.ip,
+      services: serviceMap[asset._id] || []
+    }));
+
+
+    // Call Python scanner
+    const response = await axios.post("http://localhost:8000/scan", {
+      assets: scannerAssets,
+      scan_type: scanType || "soft"
+    });
+
+    const data = response.data;
+
+    const resultsToInsert = [];
+
+    for (const result of data.results) {
+
+      const assetId = assetMap[result.host];
+
+      const businessContext = contextMap[assetId] || {};
+
+      let score = null;
+
+      try {
+
+        // Technical features from scanner
+        const techFeatures = deriveMLFeatures(result);
+
+        // Merge business + technical features
+        const mlFeatures = {
+          ...techFeatures,
+
+          asset_criticality: businessContext.asset_criticality || 0,
+          confidentiality_weight: businessContext.confidentiality_weight || 5,
+          integrity_weight: businessContext.integrity_weight || 5,
+          availability_weight: businessContext.availability_weight || 5,
+          sla_requirement: businessContext.sla_requirement || 5,
+          remediation_difficulty: businessContext.remediation_difficulty || 0,
+          dependent_services: businessContext.dependent_services || 0
+        };
+
+        // Call ML scoring API
+        const mlResponse = await fetch("http://localhost:9000/pqc-score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ features: mlFeatures })
+        });
+
+        const mlData = await mlResponse.json();
+
+        score = mlData.scores ? mlData.scores[0] : null;
+
+      } catch (err) {
+        console.error("ML scoring failed for host:", result.host, err);
+      }
+
+      resultsToInsert.push({
+        scanId: scan._id,
+        domainId: domainId,
+        assetId: assetId,
+
+        host: result.host,
+        ip: result.ip,
+        port: result.port,
+        protocol: result.protocol,
+
+        tlsVersion: result.tls_version,
+        cipher: result.cipher,
+        keyExchange: result.key_exchange,
+        signatureAlgorithm: result.signature_algorithm,
+
+        supportedTlsVersions: result.supported_tls_versions,
+        cipherSuites: result.cipher_suites,
+        weakCiphers: result.weak_ciphers,
+
+        keySize: result.key_size,
+        issuer: result.issuer,
+        expires: result.expires,
+
+        pfsSupported: result.pfs_supported,
+        vulnerabilities: result.vulnerabilities,
+        selfSigned: result.self_signed,
+
+        pqcKeyExchange: result.pqc_key_exchange,
+        pqcSignature: result.pqc_signature,
+        hybridPqc: result.hybrid_pqc,
+
+        // Business context saved
+        businessContext: businessContext,
+
+        pqcReadyScore: score
+      });
+
+    }
+
+    await ScanResult.insertMany(resultsToInsert);
+
+    scan.status = "completed";
+    scan.completedAt = new Date();
+    await scan.save();
+
+    res.json({
+      scanId: scan._id,
+      results: data.results
+    });
+
+  } catch (error) {
+
+    console.error("Error fetching scans:", error);
+
+    res.status(500).json({
+      message: error.message
+    });
+
+  }
+});
 /**
  * @route GET /api/scan/:id/status
  * @description Gets the current status and timing of a scan job.
  * @param {string} id - Scan ID.
  * @returns {Object} 200 - Status, startedAt, and completedAt.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "status": "completed",
+ * //   "startedAt": "2023-09-01T12:00:00.000Z",
+ * //   "completedAt": "2023-09-01T12:05:00.000Z"
+ * // }
  */
 router.get("/:id/status", async (req, res) => {
     try {
@@ -170,6 +253,20 @@ router.get("/:id/status", async (req, res) => {
  * @description Retrieves the raw cryptographic results for a completed scan.
  * @param {string} id - Scan ID.
  * @returns {Array<Object>} 200 - List of ScanResult documents.
+ * 
+ * @example
+ * // Output:
+ * // [
+ * //   {
+ * //     "_id": "64f3c4d5e6f7a8b9c0d1e2f3",
+ * //     "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
+ * //     "host": "www.example.com",
+ * //     "port": 443,
+ * //     "tlsVersion": "TLSv1.3",
+ * //     "pqcReadyScore": 0.85,
+ * //     ...
+ * //   }
+ * // ]
  */
 router.get("/:id/results", async (req, res) => {
     try {
@@ -190,6 +287,21 @@ router.get("/:id/results", async (req, res) => {
  * @description Generates AI recommendations for every asset in a scan using LLM.
  * @param {string} scanId - Scan ID.
  * @returns {Array<Object>} 200 - List of created Recommendation documents.
+ * 
+ * @example
+ * // Output:
+ * // [
+ * //   {
+ * //     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
+ * //     "scanResultId": "64f3c4d5e6f7a8b9c0d1e2f3",
+ * //     "host": "www.example.com",
+ * //     "riskLevel": "LOW",
+ * //     "recommendations": ["No immediate action needed."],
+ * //     "migrationSteps": ["Monitor NIST standards."],
+ * //     "recommendedPqcKex": "ML-KEM-768",
+ * //     "recommendedPqcSignature": "CRYSTALS-Dilithium"
+ * //   }
+ * // ]
  */
 router.post("/:scanId/recommendations", async (req, res) => {
     try {
@@ -233,6 +345,17 @@ router.post("/:scanId/recommendations", async (req, res) => {
  * @description Retrieves previously generated recommendations for a scan.
  * @param {string} scanId - Scan ID.
  * @returns {Array<Object>} 200 - List of Recommendation documents.
+ * 
+ * @example
+ * // Output:
+ * // [
+ * //   {
+ * //     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
+ * //     "host": "www.example.com",
+ * //     "riskLevel": "LOW",
+ * //     ...
+ * //   }
+ * // ]
  */
 router.get("/:scanId/recommendations", async (req, res) => {
   try {
@@ -255,6 +378,12 @@ router.get("/:scanId/recommendations", async (req, res) => {
  * @description Cancels a pending or running scan.
  * @param {string} id - Scan ID.
  * @returns {Object} 200 - Success message.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "message": "Scan cancelled successfully"
+ * // }
  */
 router.patch("/:id/cancel", async (req, res) => {
     try {
@@ -283,6 +412,21 @@ router.patch("/:id/cancel", async (req, res) => {
  * @description Fetches all scan history for a specific domain.
  * @param {string} domainId - Target Domain ID.
  * @returns {Object} 200 - Total count and list of scans.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "total": 2,
+ * //   "scans": [
+ * //     {
+ * //       "_id": "64f2b3c4d5e6f7a8b9c0d1e2",
+ * //       "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //       "status": "completed",
+ * //       "createdAt": "2023-09-01T12:00:00.000Z",
+ * //       ...
+ * //     }
+ * //   ]
+ * // }
  */
 router.get("/domain/:domainId", async (req, res) => {
     try {

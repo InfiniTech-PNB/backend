@@ -23,6 +23,25 @@ router.use(authMiddleware);
  * @returns {Object} 200 - Success message and the list of discovered assets.
  * @returns {Error} 404 - Domain not found.
  * @returns {Error} 500 - Python service failure or database error.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "message": "Assets discovered successfully",
+ * //   "total": 1,
+ * //   "assets": [
+ * //     {
+ * //       "_id": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //       "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //       "host": "www.example.com",
+ * //       "ip": "192.168.1.1",
+ * //       "assetType": "website",
+ * //       "createdAt": "2023-09-01T12:00:00.000Z",
+ * //       "updatedAt": "2023-09-01T12:00:00.000Z",
+ * //       "__v": 0
+ * //     }
+ * //   ]
+ * // }
  */
 router.post("/:id/discover", async (req, res) => {
   try {
@@ -96,6 +115,29 @@ router.post("/:id/discover", async (req, res) => {
  * @param {string} id - The MongoDB ID of the Domain.
  * @returns {Object} 200 - List of assets with nested services.
  * @returns {Error} 404 - Domain not found.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "total": 1,
+ * //   "assets": [
+ * //     {
+ * //       "_id": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //       "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //       "host": "www.example.com",
+ * //       "ip": "192.168.1.1",
+ * //       "assetType": "website",
+ * //       "services": [
+ * //         {
+ * //           "_id": "64f2c3d4e5f6a7b8c9d0e1f2",
+ * //           "assetId": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //           "port": 443,
+ * //           "protocolName": "HTTPS"
+ * //         }
+ * //       ]
+ * //     }
+ * //   ]
+ * // }
  */
 router.get("/:id/assets", async (req, res) => {
   try {

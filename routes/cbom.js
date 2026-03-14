@@ -23,6 +23,19 @@ router.use(authMiddleware);
  * @returns {Object} 200 - The generated CBOM object and its ID.
  * @returns {Error} 400 - No scan results found.
  * @returns {Error} 500 - Generation failure.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "cbomId": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //   "cbom": {
+ * //     "scanId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //     "algorithms": [...],
+ * //     "keys": [...],
+ * //     "protocols": [...],
+ * //     "certificates": [...]
+ * //   }
+ * // }
  */
 router.post("/:id", async (req, res) => {
     try {
@@ -91,6 +104,17 @@ router.post("/:id", async (req, res) => {
  * @param {string} scanId - The MongoDB ID of the Scan.
  * @returns {Object} 200 - The CBOM document.
  * @returns {Error} 404 - CBOM not found.
+ * 
+ * @example
+ * // Output:
+ * // {
+ * //   "_id": "64f1b2c3d4e5f6a7b8c9d0e1",
+ * //   "scanId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ * //   "algorithms": [...],
+ * //   "keys": [...],
+ * //   "protocols": [...],
+ * //   "certificates": [...]
+ * // }
  */
 router.get("/:scanId/cbom", async (req, res) => {
   try {
@@ -119,6 +143,9 @@ router.get("/:scanId/cbom", async (req, res) => {
  * @returns {Binary} 200 - PDF file stream.
  * @returns {Error} 404 - CBOM not found.
  * @returns {Error} 500 - PDF generation failure.
+ * 
+ * @example
+ * // Output: Binary PDF file downloaded as "cbom-report.pdf"
  */
 router.get("/:scanId/cbom/pdf", async (req, res) => {
   try {
