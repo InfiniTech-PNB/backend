@@ -16,9 +16,9 @@ const axios = require("axios");
 const deriveMLFeatures = require("../services/mlFeatureExtractor");
 const generateRecommendation = require("../services/generateRecommendation");
 const runWithConcurrency = require("../services/runWithConcurrency");
-
+const { computeEnvScore, combineScores } = require("../services/scoring");
 // Apply authentication to all scan routes
-router.use(authMiddleware);
+//router.use(authMiddleware);
 
 /**
  * @route POST /api/scan
@@ -122,40 +122,37 @@ router.post("/", async (req, res) => {
 
       const businessContext = contextMap[assetId] || {};
 
+      const envScore = computeEnvScore({
+        assetCriticality: businessContext.assetCriticality,
+        confidentialityWeight: businessContext.confidentialityWeight,
+        integrityWeight: businessContext.integrityWeight,
+        availabilityWeight: businessContext.availabilityWeight,
+        slaRequirement: businessContext.slaRequirement,
+        remediationDifficulty: businessContext.remediationDifficulty,
+        dependentServices: businessContext.dependentServices
+      });
+
       let score = null;
 
       try {
 
         // Technical features from scanner
-        const techFeatures = deriveMLFeatures(result);
-
-        // Merge business + technical features
-        const mlFeatures = {
-          ...techFeatures,
-
-          asset_criticality: businessContext.asset_criticality || 0,
-          confidentiality_weight: businessContext.confidentiality_weight || 5,
-          integrity_weight: businessContext.integrity_weight || 5,
-          availability_weight: businessContext.availability_weight || 5,
-          sla_requirement: businessContext.sla_requirement || 5,
-          remediation_difficulty: businessContext.remediation_difficulty || 0,
-          dependent_services: businessContext.dependent_services || 0
-        };
+        const mlFeatures = deriveMLFeatures(result);
 
         // Call ML scoring API
-        const mlResponse = await fetch("http://localhost:9000/pqc-score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ features: mlFeatures })
+        const mlResponse = await axios.post("http://localhost:9000/pqc-score", {
+          features: mlFeatures
         });
 
-        const mlData = await mlResponse.json();
+        const mlData = mlResponse.data;
 
         score = mlData.scores ? mlData.scores[0] : null;
 
       } catch (err) {
         console.error("ML scoring failed for host:", result.host, err);
       }
+
+      const finalScore = combineScores(score, envScore);
 
       resultsToInsert.push({
         scanId: scan._id,
@@ -191,7 +188,9 @@ router.post("/", async (req, res) => {
         // Business context saved
         businessContext: businessContext,
 
-        pqcReadyScore: score
+        mlScore: score,
+        envScore: envScore,
+        pqcReadyScore: finalScore
       });
 
     }
@@ -232,20 +231,20 @@ router.post("/", async (req, res) => {
  * // }
  */
 router.get("/:id/status", async (req, res) => {
-    try {
-        const scan = await Scan.findById(req.params.id).select("status startedAt completedAt");
-        if (!scan) {
-            return res.status(404).json({ message: "Scan not found" });
-        }
-        res.json({
-            status: scan.status,
-            startedAt: scan.startedAt,
-            completedAt: scan.completedAt
-        });
-    } catch (error) {
-        console.error("Error fetching scan status:", error);
-        res.status(500).json({ message: error.message });
+  try {
+    const scan = await Scan.findById(req.params.id).select("status startedAt completedAt");
+    if (!scan) {
+      return res.status(404).json({ message: "Scan not found" });
     }
+    res.json({
+      status: scan.status,
+      startedAt: scan.startedAt,
+      completedAt: scan.completedAt
+    });
+  } catch (error) {
+    console.error("Error fetching scan status:", error);
+    res.status(500).json({ message: error.message });
+  }
 });
 
 /**
@@ -269,17 +268,17 @@ router.get("/:id/status", async (req, res) => {
  * // ]
  */
 router.get("/:id/results", async (req, res) => {
-    try {
-        const scan = await Scan.findById(req.params.id);
-        if (!scan) {
-            return res.status(404).json({ message: "Scan not found" });
-        }
-        const results = await ScanResult.find({ scanId: scan._id }).sort({ host: 1 });
-        res.json(results);
-    } catch (error) {
-        console.error("Error fetching scan results:", error);
-        res.status(500).json({ message: error.message });
+  try {
+    const scan = await Scan.findById(req.params.id);
+    if (!scan) {
+      return res.status(404).json({ message: "Scan not found" });
     }
+    const results = await ScanResult.find({ scanId: scan._id }).sort({ host: 1 });
+    res.json(results);
+  } catch (error) {
+    console.error("Error fetching scan results:", error);
+    res.status(500).json({ message: error.message });
+  }
 });
 
 /**
@@ -304,40 +303,40 @@ router.get("/:id/results", async (req, res) => {
  * // ]
  */
 router.post("/:scanId/recommendations", async (req, res) => {
-    try {
-        const scanId = req.params.scanId;
-        const scan = await Scan.findById(scanId);
-        if (!scan) {
-            return res.status(404).json({ message: "Scan not found" });
-        }
-        if(scan.status !== "completed") {
-            return res.status(400).json({ message: "Scan is not completed" });
-        }
-        const results = await ScanResult.find({ scanId });
-
-        // Map results to asynchronous tasks for concurrent processing
-        const tasks = results.map(result => async () => {
-            const ai = await generateRecommendation(result);
-            const recommendation = await Recommendation.create({
-                scanResultId: result._id,
-                host: result.host,
-                pqcScore: result.pqcReadyScore,
-                riskLevel: ai.risk_level,
-                recommendations: ai.recommendations,
-                migrationSteps: ai.migration_steps,
-                recommendedPqcKex: ai.recommended_pqc_kex,
-                recommendedPqcSignature: ai.recommended_pqc_signature
-            });
-            return recommendation;
-        });
-        
-        // Execute LLM calls with controlled concurrency (e.g., 5 at a time)
-        const recommendations = await runWithConcurrency(tasks, 5);
-        res.json(recommendations);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to generate recommendations" });
+  try {
+    const scanId = req.params.scanId;
+    const scan = await Scan.findById(scanId);
+    if (!scan) {
+      return res.status(404).json({ message: "Scan not found" });
     }
+    if (scan.status !== "completed") {
+      return res.status(400).json({ message: "Scan is not completed" });
+    }
+    const results = await ScanResult.find({ scanId });
+
+    // Map results to asynchronous tasks for concurrent processing
+    const tasks = results.map(result => async () => {
+      const ai = await generateRecommendation(result);
+      const recommendation = await Recommendation.create({
+        scanResultId: result._id,
+        host: result.host,
+        pqcScore: result.pqcReadyScore,
+        riskLevel: ai.risk_level,
+        recommendations: ai.recommendations,
+        migrationSteps: ai.migration_steps,
+        recommendedPqcKex: ai.recommended_pqc_kex,
+        recommendedPqcSignature: ai.recommended_pqc_signature
+      });
+      return recommendation;
+    });
+
+    // Execute LLM calls with controlled concurrency (e.g., 5 at a time)
+    const recommendations = await runWithConcurrency(tasks, 5);
+    res.json(recommendations);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to generate recommendations" });
+  }
 });
 
 /**
@@ -362,7 +361,7 @@ router.get("/:scanId/recommendations", async (req, res) => {
     const scanId = req.params.scanId;
     const scanResults = await ScanResult.find({ scanId }).select("_id");
     const scanResultIds = scanResults.map(r => r._id);
-    
+
     const recommendations = await Recommendation.find({
       scanResultId: { $in: scanResultIds }
     });
@@ -386,25 +385,25 @@ router.get("/:scanId/recommendations", async (req, res) => {
  * // }
  */
 router.patch("/:id/cancel", async (req, res) => {
-    try {
-        const scan = await Scan.findById(req.params.id);
-        if (!scan) {
-            return res.status(404).json({ message: "Scan not found" });
-        }
-        if (scan.status === "completed") {
-            return res.status(400).json({ message: "Scan already completed" });
-        }
-        if (scan.status === "cancelled") {
-            return res.status(400).json({ message: "Scan already cancelled" });
-        }
-        scan.status = "cancelled";
-        scan.completedAt = new Date();
-        await scan.save();
-        res.json({ message: "Scan cancelled successfully" });
-    } catch (error) {
-        console.error("Error cancelling scan:", error);
-        res.status(500).json({ message: error.message });
+  try {
+    const scan = await Scan.findById(req.params.id);
+    if (!scan) {
+      return res.status(404).json({ message: "Scan not found" });
     }
+    if (scan.status === "completed") {
+      return res.status(400).json({ message: "Scan already completed" });
+    }
+    if (scan.status === "cancelled") {
+      return res.status(400).json({ message: "Scan already cancelled" });
+    }
+    scan.status = "cancelled";
+    scan.completedAt = new Date();
+    await scan.save();
+    res.json({ message: "Scan cancelled successfully" });
+  } catch (error) {
+    console.error("Error cancelling scan:", error);
+    res.status(500).json({ message: error.message });
+  }
 });
 
 /**
@@ -429,18 +428,18 @@ router.patch("/:id/cancel", async (req, res) => {
  * // }
  */
 router.get("/domain/:domainId", async (req, res) => {
-    try {
-        const scans = await Scan
-            .find({ domainId: req.params.domainId })
-            .sort({ createdAt: -1 });
+  try {
+    const scans = await Scan
+      .find({ domainId: req.params.domainId })
+      .sort({ createdAt: -1 });
 
-        res.json({
-            total: scans.length,
-            scans
-        });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+    res.json({
+      total: scans.length,
+      scans
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 module.exports = router;

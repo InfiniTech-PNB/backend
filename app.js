@@ -18,6 +18,7 @@ const dashboardRoutes = require("./routes/dashboard");
 const domainRoutes = require("./routes/domainRoutes");
 const scanRoutes = require("./routes/scan");
 const serviceRoutes = require("./routes/services");
+const chatBotRoutes = require("./routes/chatBot");
 
 // Database Configuration
 const { connectDB } = require("./config/connectDB");
@@ -69,6 +70,9 @@ app.use("/api/scan", scanRoutes);
 
 // Services: Details about specific network services (HTTPS, SMTP, etc.) for discovered assets
 app.use("/api/services", serviceRoutes);
+
+// Chatbot: Ask questions about scan results
+app.use("/api/chatbot", chatBotRoutes);
 
 /**
  * Global Error Handling Middleware

@@ -1,60 +1,54 @@
 /**
  * @function deriveMLFeatures
- * @description Extracts a normalized numerical feature set from a raw scan result.
- * This feature set is sent to the ML scoring service to calculate the PQC Readiness Score.
- * @param {Object} scan - The raw scan result (ScanResult model).
- * @returns {Object} - A flat object of features for ML consumption.
+ * @description Extracts the feature set used by the PQC ML model.
+ * @param {Object} scan - ScanResult object
+ * @returns {Object}
  */
 function deriveMLFeatures(scan) {
 
   const features = {};
 
-  // TLS VERSION
-  const tlsMap = {
-    "TLSv1.3": 3,
-    "TLSv1.2": 2,
-    "TLSv1.1": 1,
-    "TLSv1.0": 0
-  };
+  // TLS VERSION (keep as string)
+  features.tls_version = scan.tls_version || "nan";
 
-  features.tls_version = tlsMap[scan.tlsVersion] || 0;
-
-  // CIPHER TYPE
-  const cipher = scan.cipher || "";
-
-  features.cipher = cipher;
+  // CIPHER (string)
+  features.cipher = scan.cipher || "nan";
 
   // KEY EXCHANGE
-  features.key_exchange = scan.keyExchange || "UNKNOWN";
+  features.key_exchange = scan.key_exchange || "nan";
 
-  // SIGNATURE
-  features.signature = scan.signatureAlgorithm || "UNKNOWN";
+  // SIGNATURE ALGORITHM
+  features.signature_algorithm = scan.signature_algorithm || "nan";
 
   // PQC FEATURES
-  features.pqc_key_exchange = scan.pqcKeyExchange ? 1 : 0;
-  features.pqc_signature = scan.pqcSignature ? 1 : 0;
-  features.hybrid_pqc = scan.hybridPqc ? 1 : 0;
+  features.pqc_key_exchange = scan.pqc_key_exchange || "nan";
+  features.pqc_signature = scan.pqc_signature || "nan";
+
+  // HYBRID PQC (boolean)
+  features.hybrid_pqc = Boolean(scan.hybrid_pqc);
+
+  // NUMBER OF SUPPORTED TLS VERSIONS
+  features.supported_tls_versions_count =
+    scan.supported_tls_versions ? scan.supported_tls_versions.length : 0;
 
   // NUMBER OF CIPHER SUITES
-  features.supported_cipher_suites =
-    scan.cipherSuites ? scan.cipherSuites.length : 0;
+  features.cipher_suites_count =
+    scan.cipher_suites ? scan.cipher_suites.length : 0;
 
-  // WEAK CIPHER COUNT
-  features.weak_ciphers =
-    scan.weakCiphers ? scan.weakCiphers.length : 0;
+  // NUMBER OF WEAK CIPHERS
+  features.weak_cipher_count =
+    scan.weak_ciphers ? scan.weak_ciphers.length : 0;
 
   // KEY SIZE
-  features.key_size = scan.keySize || 0;
+  features.key_size = scan.key_size || 0;
 
-  // PFS
-  features.pfs_supported = scan.pfsSupported ? 1 : 0;
+  // PFS SUPPORT
+  features.pfs_supported = Boolean(scan.pfs_supported);
 
   // RSA USED
   features.rsa_used =
-    scan.signatureAlgorithm &&
-    scan.signatureAlgorithm.toUpperCase().includes("RSA")
-      ? 1
-      : 0;
+    scan.signature_algorithm &&
+    scan.signature_algorithm.toUpperCase().includes("RSA");
 
   return features;
 }

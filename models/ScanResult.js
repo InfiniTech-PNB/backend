@@ -77,46 +77,56 @@ const ScanResultSchema = new mongoose.Schema({
     default: 0
   },
 
-  // Business Context for Risk Scoring
-  business_context: {
+  mlScore: {
+    type: Number,
+    default: 0
+  },
 
-    asset_criticality: {
+  envScore: {
+    type: Number,
+    default: 0
+  },
+
+  // Business Context for Risk Scoring
+  businessContext: {
+
+    assetCriticality: {
       type: Number,
       min: 0,
       max: 9
     },
 
-    confidentiality_weight: {
+    confidentialityWeight: {
       type: Number,
       min: 0,
       max: 10
     },
 
-    integrity_weight: {
+    integrityWeight: {
       type: Number,
       min: 0,
       max: 10
     },
 
-    availability_weight: {
+    availabilityWeight: {
       type: Number,
       min: 0,
       max: 10
     },
 
-    sla_requirement: {
+    slaRequirement: {
       type: Number,
       min: 0,
       max: 10
     },
 
-    remediation_difficulty: {
+    remediationDifficulty: {
       type: Number,
       min: 0,
       max: 10
     },
 
-    dependent_services: {
+    dependentServices: {
       type: Number,
       min: 0,
       max: 10
