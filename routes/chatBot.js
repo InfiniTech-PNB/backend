@@ -6,7 +6,7 @@ const ScanResult = require("../models/ScanResult");
 const axios = require("axios");
 const buildStrictPrompt = require("../services/generateChatPrompt");
 const Domain = require("../models/Domain");
-const Chat = require("../models/ChatBot");
+const Chat = require("../models/Chat");
 require("dotenv").config();
 
 
