@@ -38,64 +38,71 @@ router.use(authMiddleware);
  * // }
  */
 router.post("/:id", async (req, res) => {
-    try {
-        const scanId = req.params.id;
-        const scanResults = await ScanResult.find({ scanId: scanId }).populate("assetId");
-        if (!scanResults.length) {
-            return res.status(400).json({
-                message: "No scan results found"
-            });
-        }
-
-        // convert mongoose docs → plain JSON for Python service
-        const scannerResults = scanResults.map(r => ({
-            host: r.assetId.host,
-            ip: r.assetId.ip,
-            port: r.port,
-            protocol: r.protocol,
-            tls_version: r.tlsVersion,
-            cipher: r.cipher,
-            key_exchange: r.keyExchange,
-            signature_algorithm: r.signatureAlgorithm,
-            pqc_key_exchange: r.pqcKeyExchange,
-            pqc_signature: r.pqcSignature,
-            hybrid_pqc: !!r.hybridPqc,
-            supported_tls_versions: r.supportedTlsVersions,
-            cipher_suites: r.cipherSuites,
-            weak_ciphers: r.weakCiphers,
-            key_size: r.keySize,
-            issuer: r.issuer,
-            expires: r.expires,
-            pfs_supported: !!r.pfsSupported,
-            vulnerabilities: r.vulnerabilities,
-            self_signed: !!r.selfSigned,
-            pqc_ready_score: r.pqcReadyScore || 0
-        }));
-
-        // call CBOM FastAPI (Python)
-        const response = await axios.post("http://localhost:8000/cbom", {
-            results: scannerResults
-        });
-
-        const cbomData = response.data;
-
-        // Persist CBOM to Database
-        const cbom = await Cbom.create({
-            scanId: scanId,
-            algorithms: cbomData.cbom.algorithms,
-            keys: cbomData.cbom.keys,
-            protocols: cbomData.cbom.protocols,
-            certificates: cbomData.cbom.certificates
-        });
-
-        res.json({
-            cbomId: cbom._id,
-            cbom: cbom
-        });
-    } catch (error) {
-        console.error("Error generating CBOM:", error);
-        res.status(500).json({ message: error.message });
+  try {
+    const scanId = req.params.id;
+    const existingCbom = await Cbom.findOne({ scanId });
+    if (existingCbom) {
+      return res.json({
+        cbomId: existingCbom._id,
+        cbom: existingCbom
+      });
     }
+    const scanResults = await ScanResult.find({ scanId: scanId }).populate("assetId");
+    if (!scanResults.length) {
+      return res.status(400).json({
+        message: "No scan results found"
+      });
+    }
+
+    // convert mongoose docs → plain JSON for Python service
+    const scannerResults = scanResults.map(r => ({
+      host: r.assetId.host,
+      ip: r.assetId.ip,
+      port: r.port,
+      protocol: r.protocol,
+      tls_version: r.tlsVersion,
+      cipher: r.cipher,
+      key_exchange: r.keyExchange,
+      signature_algorithm: r.signatureAlgorithm,
+      pqc_key_exchange: r.pqcKeyExchange,
+      pqc_signature: r.pqcSignature,
+      hybrid_pqc: !!r.hybridPqc,
+      supported_tls_versions: r.supportedTlsVersions,
+      cipher_suites: r.cipherSuites,
+      weak_ciphers: r.weakCiphers,
+      key_size: r.keySize,
+      issuer: r.issuer,
+      expires: r.expires,
+      pfs_supported: !!r.pfsSupported,
+      vulnerabilities: r.vulnerabilities,
+      self_signed: !!r.selfSigned,
+      pqc_ready_score: r.pqcReadyScore || 0
+    }));
+
+    // call CBOM FastAPI (Python)
+    const response = await axios.post("http://localhost:8000/cbom", {
+      results: scannerResults
+    });
+
+    const cbomData = response.data;
+
+    // Persist CBOM to Database
+    const cbom = await Cbom.create({
+      scanId: scanId,
+      algorithms: cbomData.cbom.algorithms,
+      keys: cbomData.cbom.keys,
+      protocols: cbomData.cbom.protocols,
+      certificates: cbomData.cbom.certificates
+    });
+
+    res.json({
+      cbomId: cbom._id,
+      cbom: cbom
+    });
+  } catch (error) {
+    console.error("Error generating CBOM:", error);
+    res.status(500).json({ message: error.message });
+  }
 });
 
 /**

@@ -127,14 +127,10 @@ The PQC readiness score ranges from 0 to 1 and must be interpreted in two dimens
 Classification rules:
 
 Quantum Vulnerability:
-0.00 – 0.40 → High Quantum Vulnerability
-0.40 – 0.75 → Moderate Quantum Vulnerability
-0.75 – 1.00 → Low Quantum Vulnerability
-
-Migration Readiness:
-0.00 – 0.40 → Low Migration Readiness
-0.40 – 0.75 → Moderate Migration Readiness
-0.75 – 1.00 → High Migration Readiness
+0.00 – 0.40 → Quantum Vulnerability
+0.40 – 0.70 → Migration Required
+0.70 – 0.90 → PQC Ready
+0.90 – 1.00 → Quantum Safe
 
 Important distinction:
 

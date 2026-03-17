@@ -93,7 +93,7 @@ const ScanResultSchema = new mongoose.Schema({
     assetCriticality: {
       type: Number,
       min: 0,
-      max: 9
+      max: 10
     },
 
     confidentialityWeight: {

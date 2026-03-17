@@ -40,10 +40,21 @@ router.use(authMiddleware);
 router.post("/", async (req, res) => {
   try {
     const { domainName } = req.body;
-    const domain = new Domain({ domainName });
-    await domain.save();
-    res.json(domain);
+
+    if (!domainName) {
+      return res.status(400).json({ message: "domainName is required" });
+    }
+    let domain = await Domain.findOne({ domainName });
+
+    if (domain) {
+      return res.json(domain);
+    }
+    let new_domain = new Domain({ domainName });
+    await new_domain.save();
+
+    res.status(201).json(new_domain);
   } catch (error) {
+    console.error("Domain processing error:", error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -123,10 +134,10 @@ router.get("/:domainId/summary", async (req, res) => {
     if (!domain) {
       return res.status(404).json({ message: "Domain not found" });
     }
-    
+
     // Count total tracked assets
     const totalAssets = await Asset.countDocuments({ domainId });
-    
+
     // Find the most recent scan job
     const latestScan = await Scan.findOne({ domainId }).sort({ startedAt: -1 });
 
@@ -149,7 +160,7 @@ router.get("/:domainId/summary", async (req, res) => {
     // Fetch individual scan results for calculation
     const results = await ScanResult.find({ scanId: latestScan._id });
     const totalScannedAssets = results.length;
-    
+
     let pqcReady = 0;
     let migrationReady = 0;
     let legacyCrypto = 0;

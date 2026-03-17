@@ -16,7 +16,7 @@ const client = createClient({
     socket: {
         host: process.env.REDIS_END_POINT,
         port: process.env.REDIS_PORT,
-        tls:true
+        //tls:true
     }
 });
 

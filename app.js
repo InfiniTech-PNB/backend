@@ -32,7 +32,7 @@ app.use(express.urlencoded({ extended: true })); // Parses urlencoded bodies
 
 // CORS Configuration: Allows communication from Frontend (5173) and Python services (8000)
 app.use(cors({
-    origin: ["http://localhost:5173", "http://localhost:8000"],
+    origin: ["http://localhost:5173", "http://localhost:8000","http://localhost:9000"],
     credentials: true
 }));
 

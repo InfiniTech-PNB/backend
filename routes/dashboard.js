@@ -35,18 +35,18 @@ router.get("/stats", async (req, res) => {
         const totalDomains = await Domain.countDocuments();
         const totalAssets = await Asset.countDocuments();
 
-        // Count assets with a high PQC readiness score
+        // 1. Get unique assets that have actually appeared in a scan result
+        const scannedAssets = await ScanResult.distinct("assetId");
+        const scannedAssetsCount = scannedAssets.length;
+
+        // 2. Count PQC-ready assets specifically from those scanned
         const pqcReadyAssets = await ScanResult.countDocuments({
-            pqcReadyScore: { $gte: 0.8 }
+            pqcReadyScore: { $gte: 0.9 }
         });
 
-        // Identify domains that have at least one asset with a low PQC score
+        // 3. Identify risky domains (at least one asset < 0.4)
         const riskyResults = await ScanResult.aggregate([
-            {
-                $match: {
-                    pqcReadyScore: { $lt: 0.4 }
-                }
-            },
+            { $match: { pqcReadyScore: { $lt: 0.4 } } },
             {
                 $lookup: {
                     from: "scans",
@@ -56,24 +56,29 @@ router.get("/stats", async (req, res) => {
                 }
             },
             { $unwind: "$scan" },
-            {
-                $group: { _id: "$scan.domainId" }
-            }
+            { $group: { _id: "$scan.domainId" } }
         ]);
 
         const highRiskDomains = riskyResults.length;
 
+        // Send detailed breakdown
         res.json({
-            totalDomains: totalDomains,
-            totalAssets: totalAssets,
-            highRiskDomains: highRiskDomains,
-            pqcReadyAssets: pqcReadyAssets
+            totalDomains,
+            totalAssets, // Total in inventory
+            scannedAssetsCount, // Total actually scanned
+            highRiskDomains,
+            pqcReadyAssets,
+            // Comparison logic: % of scanned assets that are safe
+            pqcAdoptionRate: scannedAssetsCount > 0 
+                ? (pqcReadyAssets / scannedAssetsCount).toFixed(2) 
+                : 0,
+            scanCoverage: totalAssets > 0 
+                ? (scannedAssetsCount / totalAssets).toFixed(2) 
+                : 0
         });
     } catch (err) {
         console.error(err);
-        res.status(500).json({
-            error: "Failed to get dashboard stats"
-        });
+        res.status(500).json({ error: "Failed to aggregate stats" });
     }
 });
 
