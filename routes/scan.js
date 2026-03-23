@@ -17,6 +17,7 @@ const deriveMLFeatures = require("../services/mlFeatureExtractor");
 const generateRecommendation = require("../services/generateRecommendation");
 const runWithConcurrency = require("../services/runWithConcurrency");
 const { computeEnvScore, combineScores } = require("../services/scoring");
+const generateScore = require("../services/generateScore");
 // Apply authentication to all scan routes
 router.use(authMiddleware);
 
@@ -133,7 +134,7 @@ router.post("/", async (req, res) => {
       });
 
       let score = null;
-
+      let normalizedScore = null;
       try {
 
         // Technical features from scanner
@@ -147,12 +148,13 @@ router.post("/", async (req, res) => {
         const mlData = mlResponse.data;
 
         score = mlData.scores ? mlData.scores[0] : null;
+        normalizedScore = await generateScore(score, result);
 
       } catch (err) {
         console.error("ML scoring failed for host:", result.host, err);
       }
 
-      const finalScore = combineScores(score, envScore);
+      const finalScore = combineScores(normalizedScore, envScore);
 
       resultsToInsert.push({
         scanId: scan._id,
@@ -188,7 +190,7 @@ router.post("/", async (req, res) => {
         // Business context saved
         businessContext: businessContext,
 
-        mlScore: score,
+        mlScore: normalizedScore,
         envScore: envScore,
         pqcReadyScore: finalScore
       });
