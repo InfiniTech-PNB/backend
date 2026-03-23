@@ -275,7 +275,7 @@ router.get("/:id/results", async (req, res) => {
     if (!scan) {
       return res.status(404).json({ message: "Scan not found" });
     }
-    const results = await ScanResult.find({ scanId: scan._id }).sort({ host: 1 });
+    const results = await ScanResult.find({ scanId: scan._id }).sort({ host: 1 }).populate("assetId");
     res.json(results);
   } catch (error) {
     console.error("Error fetching scan results:", error);

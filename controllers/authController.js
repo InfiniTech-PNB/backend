@@ -34,19 +34,28 @@ exports.verifyOtp = catchAsync(async (req, res) => {
     await verifyOtp(email, otp);
 
     const user = await User.findOne({ email });
-    if(!user.isVerified){
-        user.isVerified=true;
+    if (!user.isVerified) {
+        user.isVerified = true;
         await user.save();
     }
-    
+
     const token = jwt.sign(
-        { id: user._id, role: user.role },
+        {
+            id: user._id,
+            role: user.role,
+            email: user.email,
+            name: user.name
+        },
         process.env.JWT_SECRET,
         { expiresIn: "1d" }
     );
 
     return res.json({
         success: true,
-        token
+        token,
+        user: {
+            name: user.name,
+            email: user.email
+        }
     });
 });
