@@ -139,6 +139,3 @@ node app.js
 - **Author**: InfiniTech
 
 ---
-
-## 📝 License
-ISC License
