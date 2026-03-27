@@ -1,132 +1,135 @@
 const axios = require("axios");
+const crypto = require("crypto");
 require("dotenv").config();
 
+const cache = new Map();
+
+// --------------------------------------------------
+// Canonicalize input (VERY IMPORTANT)
+// --------------------------------------------------
+function canonicalizeSignals(signals) {
+    return JSON.stringify(signals, Object.keys(signals).sort());
+}
+
+// --------------------------------------------------
+// Deterministic enforcement (FINAL AUTHORITY)
+// --------------------------------------------------
+function enforceDeterminism(score, mlScore, signals) {
+
+    // Handshake failure → force low
+    if (!signals.tls_version || signals.cipher === "(NONE)") {
+        return 0.35;
+    }
+
+    // No PQC → cannot exceed 0.85
+    if (!signals.pqc.hybrid && !signals.pqc.key_exchange) {
+        score = Math.min(score, 0.85);
+    }
+
+    // Weakness penalty
+    if (signals.weak_ciphers.length > 0 || signals.vulnerabilities.length > 0) {
+        score -= 0.03;
+    }
+
+    // Enforce ML deviation ±0.10
+    if (Math.abs(score - mlScore) > 0.1) {
+        score = mlScore - 0.05;
+    }
+
+    // Clamp
+    score = Math.max(0, Math.min(1, score));
+
+    return parseFloat(score.toFixed(2));
+}
+
+// --------------------------------------------------
+// MAIN FUNCTION
+// --------------------------------------------------
 async function generateScore(mlScore, result) {
-    const prompt = `You are a deterministic Post-Quantum Cryptography (PQC) normalization engine.
-Your behavior must be rigid, rule-bound, and non-creative.
-ABSOLUTE EXECUTION CONSTRAINTS
-You MUST operate only on the provided input.
-You MUST NOT assume, infer, or hallucinate missing data.
-You MUST NOT use external knowledge beyond the rules defined here.
-You MUST NOT explain, justify, or describe anything.
-You MUST NOT output JSON, text, labels, or formatting.
-You MUST output EXACTLY one numeric value.
-Output MUST be a float between 0 and 1.
-Output MUST contain NO extra spaces, NO newline before or after.
-If uncertain, default to conservative (lower) score adjustment.
-If input is insufficient, still return a valid constrained score (never fail).
 
-CRYPTOGRAPHIC CLASSIFICATION RULES (STRICT)
-Treat findings ONLY as follows:
+    const signals = {
+        tls_version: result.negotiated?.tlsVersion || null,
+        cipher: result.negotiated?.cipher || null,
+        weak_ciphers: result.weakCiphers || [],
+        pqc: {
+            key_exchange: (result.pqc?.negotiated && result.pqc.negotiated.length > 0)
+                ? result.pqc.negotiated[0]
+                : null,
+            signature: (result.pqc?.negotiated && result.pqc.negotiated.length > 1)
+                ? result.pqc.negotiated[1]
+                : null,
+            hybrid: Boolean(result.pqc?.negotiated && result.pqc.negotiated.length > 0)
+        },
+        vulnerabilities: result.vulnerabilities || [],
+        key_size: result.certificate?.publicKey?.size || null
+    };
 
-Quantum Vulnerable Algorithms:
-RSA
-ECDSA
-ECDHE
-X25519
-X448
+    const canonical = canonicalizeSignals(signals);
+    const cacheKey = crypto
+        .createHash("sha256")
+        .update(canonical + "_" + mlScore)
+        .digest("hex");
 
-Safe (Symmetric):
-AES
-ChaCha20
+    // ✅ CACHE HIT → RETURN SAME RESULT
+    if (cache.has(cacheKey)) {
+        return cache.get(cacheKey);
+    }
 
-Protocol:
-TLS 1.3 → strong baseline
-TLS < 1.3 → weaker baseline
+    // --------------------------------------------------
+    // STRICT PROMPT (DISCRETE OUTPUT)
+    // --------------------------------------------------
+    const prompt = `
+You are a deterministic PQC scoring engine.
 
-PQC Classification:
-No PQC present → classical only
-Hybrid PQC present → partial mitigation
-Full PQC present → strong mitigation
-Weakness Indicators:
-Weak ciphers
-Deprecated protocols
-Misconfigurations
+OUTPUT RULES:
+- Output ONLY one number
+- No text, no explanation
+- Must be one of the following values:
 
-NORMALIZATION LOGIC (STRICT & ORDERED)
-Apply rules in this EXACT order:
+0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.72,0.74,0.76,0.78,0.80,0.82,0.84,0.85,0.86,0.87,0.88,0.89,0.90
 
-STEP 1 — Base Validation
-Ensure output remains within [0, 1]
+SCORING RULES:
 
-STEP 2 — Classical Crypto Constraint
-If ONLY classical crypto is present:
-→ score MUST be < 0.90
+Start with base_score = ML score
 
-STEP 3 — No PQC Constraint
-If NO PQC or hybrid PQC is present:
-→ score MUST NOT exceed 0.90
+1. TLS / HANDSHAKE FAILURE
+If tls_version is null OR cipher == "(NONE)":
+    score = 0.30
 
-STEP 4 — TLS Evaluation
-If TLS 1.3 present AND no weaknesses:
-→ keep score high BUT strictly < 0.90
+Else:
 
-STEP 5 — Weakness Penalty
-If ANY weak cipher or issue exists:
-→ reduce score proportionally (minimum noticeable reduction required)
+2. PQC ADJUSTMENT
+- If no PQC → score -= 0.10
+- If hybrid PQC → score += 0.05
+- If both pqc.key_exchange AND pqc.signature exist → score += 0.10
 
-STEP 6 — Hybrid PQC Adjustment
-If hybrid PQC exists:
-→ score MUST be within [0.85, 0.95]
+3. WEAK CIPHERS
+- If weak_ciphers length > 0 → score -= 0.05
 
-STEP 7 — Full PQC Adjustment
-If full PQC exists:
-→ score MAY approach 1.0 but must respect ±0.10 rule
+4. VULNERABILITIES
+- score -= 0.05 × number of vulnerabilities
+- Maximum deduction = 0.20
 
-STEP 8 — ML Score Deviation Constraint
-Final score MUST NOT differ from ML score by more than ±0.10
+5. KEY SIZE
+- If key_size exists AND key_size < 2048 → score -= 0.05
 
-STEP 9 — Stability Rule
-If ML score already satisfies ALL constraints:
-→ DO NOT modify it
+6. CLAMP
+- If score < 0 → set to 0
+- If score > 1 → set to 1
 
-STEP 10 — Conflict Resolution
-If rules conflict:
-→ prioritize in this order:
-Classical/PQC constraints
-Weakness penalties
-TLS evaluation
-ML deviation constraint
+7. RANGE CONSTRAINT
+- Ensure score is within ±0.15 of ML score
+- If outside, move it to the nearest boundary
 
-STEP 11 — Classification Mapping (MANDATORY, NON-OUTPUT)
-Map the FINAL normalized score to one of the following internal classifications:
-0.0 - 0.4  → Quantum Vulnerable  
-0.4 - 0.7  → Migration Required  
-0.7 - 0.9  → PQC Ready  
-0.9 - 1.0  → Quantum Safe  
-This classification is for internal validation ONLY.
-STRICT CONSTRAINTS:
-• If NO PQC or hybrid PQC is present:
-  → classification MUST NOT be "Quantum Safe"
-• If ONLY classical cryptography is present:
-  → classification MUST NOT be "Quantum Safe"
-• If classification would violate the above:
-  → adjust score downward within ±0.10 constraint
-• Ensure score and classification are consistent
-IMPORTANT:
-This classification MUST NOT be printed.
-It is only used to validate the score internally.
+8. NON-EQUALITY RULE
+- If score == ML score → subtract 0.02
 
-FAIL-SAFE RULES
-NEVER output invalid format
-NEVER exceed bounds
-NEVER skip constraints
-NEVER produce multiple values
-ALWAYS return a valid float
+INPUT:
+ML Score: ${mlScore}
 
-INPUT
-ML Score:
-${mlScore}
-
-Scan Results:
-${result}
-
-OUTPUT
-Return ONLY the normalized score
-Example:
-0.87
-(No text, no explanation, no formatting)`
-        ;
+Signals:
+${canonical}
+`;
 
     try {
         const response = await axios.post(
@@ -134,8 +137,13 @@ Example:
             {
                 model: "llama-3.1-8b-instant",
                 temperature: 0,
+                top_p: 1,
                 max_tokens: 5,
                 messages: [
+                    {
+                        role: "system",
+                        content: "Return ONLY a number from the allowed list."
+                    },
                     {
                         role: "user",
                         content: prompt
@@ -149,15 +157,31 @@ Example:
                 }
             }
         );
+
         const raw = response.data.choices[0].message.content.trim();
-        console.log("raw", raw);
-        const normalizedScore = parseFloat(raw.split("\n")[0]);
-        console.log("normalizedScore", normalizedScore);
-        return normalizedScore;
+
+        // Extract float safely
+        const match = raw.match(/0?\.\d+|1(\.0+)?/);
+        let score = match ? parseFloat(match[0]) : mlScore - 0.05;
+
+        // Final deterministic enforcement
+        const finalScore = enforceDeterminism(score, mlScore, signals);
+
+        // Cache it
+        cache.set(cacheKey, finalScore);
+
+        return finalScore;
+
     } catch (error) {
-        console.error("Error generating score:", error);
-        throw error;
+        console.error("LLM Error → fallback");
+
+        // fallback deterministic
+        const fallback = enforceDeterminism(mlScore - 0.05, mlScore, signals);
+
+        cache.set(cacheKey, fallback);
+
+        return fallback;
     }
-};
+}
 
 module.exports = generateScore;

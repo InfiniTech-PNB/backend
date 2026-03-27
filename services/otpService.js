@@ -16,12 +16,12 @@ const client = createClient({
     socket: {
         host: process.env.REDIS_END_POINT,
         port: process.env.REDIS_PORT,
-        //tls:true
+        tls: true
     }
 });
 
 client.on('error', err => console.log('Redis Client Error', err));
-client.connect().then(()=>console.log("Redis Connected"));
+client.connect().then(() => console.log("Redis Connected"));
 
 /**
  * Generates a 6-digit OTP, stores it in Redis with 5-min TTL, and sends it via email.

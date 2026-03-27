@@ -1,7 +1,8 @@
 /**
  * @file scan.js
- * @description Routes for initiating and managing cryptographic scans.
- * Coordinates between Python scanner service and ML scoring service.
+ * @description These routes handle the heavy lifting: deep TLS scanning, ML-based scoring, 
+ * and AI-driven security normalization. It coordinates everything from the raw network 
+ * handshake to the final quantum-readiness score.
  */
 const express = require("express");
 const router = express.Router();
@@ -18,6 +19,7 @@ const generateRecommendation = require("../services/generateRecommendation");
 const runWithConcurrency = require("../services/runWithConcurrency");
 const { computeEnvScore, combineScores } = require("../services/scoring");
 const generateScore = require("../services/generateScore");
+const { toCamel } = require("../utils/caseConverter");
 // Apply authentication to all scan routes
 router.use(authMiddleware);
 
@@ -29,23 +31,24 @@ router.use(authMiddleware);
  * @body {Array<string>} assets - List of Asset IDs to scan.
  * @returns {Object} 200 - Scan summary and ID.
  * 
- * @example
- * // Input:
- * // {
- * //   "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
- * //   "scanType": "deep",
- * //   "assets": [
- * //     { "assetId": "64f1b2c3d4e5f6a7b8c9d0e1", "business_context": { "asset_criticality": 8 } }
- * //   ]
- * // }
- * //
- * // Output:
- * // {
- * //   "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
- * //   "results": [
- * //     { "host": "www.example.com", "port": 443, "tls_version": "TLSv1.3", ... }
- * //   ]
- * // }
+ * ---
+ * INPUT EXAMPLE:
+ * Body: {
+ *   "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ *   "scanType": "deep",
+ *   "assets": [
+ *     { "assetId": "64f1b2c3d4e5f6a7b8c9d0e1", "businessContext": { "assetCriticality": 8 } }
+ *   ]
+ * }
+ * 
+ * ---
+ * OUTPUT EXAMPLE:
+ * {
+ *   "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
+ *   "results": [
+ *     { "host": "www.example.com", "port": 443, "tls_version": "TLSv1.3", ... }
+ *   ]
+ * }
  */
 router.post("/", async (req, res) => {
   try {
@@ -84,7 +87,7 @@ router.post("/", async (req, res) => {
     // Map assetId -> business context (admin inputs)
     const contextMap = {};
     assets.forEach(a => {
-      contextMap[a.assetId] = a.business_context || {};
+      contextMap[a.assetId] = a.businessContext || a.business_context || {};
     });
 
     // Get services
@@ -117,28 +120,44 @@ router.post("/", async (req, res) => {
 
     const resultsToInsert = [];
 
-    for (const result of data.results) {
+    for (const rawResult of data.results) {
 
-      const assetId = assetMap[result.host];
-
-      const businessContext = contextMap[assetId] || {};
+      const assetId = assetMap[rawResult.host];
+      const businessContextRaw = contextMap[assetId] || {};
 
       const envScore = computeEnvScore({
-        assetCriticality: businessContext.assetCriticality,
-        confidentialityWeight: businessContext.confidentialityWeight,
-        integrityWeight: businessContext.integrityWeight,
-        availabilityWeight: businessContext.availabilityWeight,
-        slaRequirement: businessContext.slaRequirement,
-        remediationDifficulty: businessContext.remediationDifficulty,
-        dependentServices: businessContext.dependentServices
+        assetCriticality: businessContextRaw.assetCriticality,
+        confidentialityWeight: businessContextRaw.confidentialityWeight,
+        integrityWeight: businessContextRaw.integrityWeight,
+        availabilityWeight: businessContextRaw.availabilityWeight,
+        slaRequirement: businessContextRaw.slaRequirement,
+        remediationDifficulty: businessContextRaw.remediationDifficulty,
+        dependentServices: businessContextRaw.dependentServices
       });
+
+      // ========================================================
+      // AUTOMATIC CONVERSION (FOR BACKEND CONSISTENCY)
+      // ========================================================
+      const camelResult = toCamel(rawResult);
+
+      if (camelResult.status !== "success") {
+        resultsToInsert.push({
+          scanId: scan._id,
+          assetId: assetId,
+          ...camelResult,
+          pqcReadyScore: 0,
+          mlScore: 0,
+          envScore: 0,
+          businessContext: { ...businessContextRaw }
+        });
+        continue;
+      }
 
       let score = null;
       let normalizedScore = null;
       try {
-
         // Technical features from scanner
-        const mlFeatures = deriveMLFeatures(result);
+        const mlFeatures = deriveMLFeatures(camelResult);
 
         // Call ML scoring API
         const mlResponse = await axios.post("http://localhost:9000/pqc-score", {
@@ -146,55 +165,24 @@ router.post("/", async (req, res) => {
         });
 
         const mlData = mlResponse.data;
-
         score = mlData.scores ? mlData.scores[0] : null;
-        normalizedScore = await generateScore(score, result);
 
+        normalizedScore = await generateScore(score, camelResult);
       } catch (err) {
-        console.error("ML scoring failed for host:", result.host, err);
+        console.error("ML scoring failed for host:", rawResult.host, err);
       }
 
       const finalScore = combineScores(normalizedScore, envScore);
 
       resultsToInsert.push({
         scanId: scan._id,
-        domainId: domainId,
         assetId: assetId,
-
-        host: result.host,
-        ip: result.ip,
-        port: result.port,
-        protocol: result.protocol,
-
-        tlsVersion: result.tls_version,
-        cipher: result.cipher,
-        keyExchange: result.key_exchange,
-        signatureAlgorithm: result.signature_algorithm,
-
-        supportedTlsVersions: result.supported_tls_versions,
-        cipherSuites: result.cipher_suites,
-        weakCiphers: result.weak_ciphers,
-
-        keySize: result.key_size,
-        issuer: result.issuer,
-        expires: result.expires,
-
-        pfsSupported: result.pfs_supported,
-        vulnerabilities: result.vulnerabilities,
-        selfSigned: result.self_signed,
-
-        pqcKeyExchange: result.pqc_key_exchange,
-        pqcSignature: result.pqc_signature,
-        hybridPqc: result.hybrid_pqc,
-
-        // Business context saved
-        businessContext: businessContext,
-
+        ...camelResult,
+        pqcReadyScore: finalScore,
         mlScore: normalizedScore,
         envScore: envScore,
-        pqcReadyScore: finalScore
+        businessContext: { ...businessContextRaw }
       });
-
     }
 
     await ScanResult.insertMany(resultsToInsert);
@@ -218,19 +206,12 @@ router.post("/", async (req, res) => {
 
   }
 });
+
 /**
  * @route GET /api/scan/:id/status
  * @description Gets the current status and timing of a scan job.
  * @param {string} id - Scan ID.
  * @returns {Object} 200 - Status, startedAt, and completedAt.
- * 
- * @example
- * // Output:
- * // {
- * //   "status": "completed",
- * //   "startedAt": "2023-09-01T12:00:00.000Z",
- * //   "completedAt": "2023-09-01T12:05:00.000Z"
- * // }
  */
 router.get("/:id/status", async (req, res) => {
   try {
@@ -254,20 +235,6 @@ router.get("/:id/status", async (req, res) => {
  * @description Retrieves the raw cryptographic results for a completed scan.
  * @param {string} id - Scan ID.
  * @returns {Array<Object>} 200 - List of ScanResult documents.
- * 
- * @example
- * // Output:
- * // [
- * //   {
- * //     "_id": "64f3c4d5e6f7a8b9c0d1e2f3",
- * //     "scanId": "64f2b3c4d5e6f7a8b9c0d1e2",
- * //     "host": "www.example.com",
- * //     "port": 443,
- * //     "tlsVersion": "TLSv1.3",
- * //     "pqcReadyScore": 0.85,
- * //     ...
- * //   }
- * // ]
  */
 router.get("/:id/results", async (req, res) => {
   try {
@@ -288,21 +255,6 @@ router.get("/:id/results", async (req, res) => {
  * @description Generates AI recommendations for every asset in a scan using LLM.
  * @param {string} scanId - Scan ID.
  * @returns {Array<Object>} 200 - List of created Recommendation documents.
- * 
- * @example
- * // Output:
- * // [
- * //   {
- * //     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
- * //     "scanResultId": "64f3c4d5e6f7a8b9c0d1e2f3",
- * //     "host": "www.example.com",
- * //     "riskLevel": "LOW",
- * //     "recommendations": ["No immediate action needed."],
- * //     "migrationSteps": ["Monitor NIST standards."],
- * //     "recommendedPqcKex": "ML-KEM-768",
- * //     "recommendedPqcSignature": "CRYSTALS-Dilithium"
- * //   }
- * // ]
  */
 router.post("/:scanId/recommendations", async (req, res) => {
   try {
@@ -314,7 +266,7 @@ router.post("/:scanId/recommendations", async (req, res) => {
     if (scan.status !== "completed") {
       return res.status(400).json({ message: "Scan is not completed" });
     }
-    const results = await ScanResult.find({ scanId });
+    const results = await ScanResult.find({ scanId, status: { $ne: "failed" } });
 
     // Map results to asynchronous tasks for concurrent processing
     const tasks = results.map(result => async () => {
@@ -347,21 +299,25 @@ router.post("/:scanId/recommendations", async (req, res) => {
  * @param {string} scanId - Scan ID.
  * @returns {Array<Object>} 200 - List of Recommendation documents.
  * 
- * @example
- * // Output:
- * // [
- * //   {
- * //     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
- * //     "host": "www.example.com",
- * //     "riskLevel": "LOW",
- * //     ...
- * //   }
- * // ]
+ * ---
+ * OUTPUT EXAMPLE:
+ * [
+ *   {
+ *     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
+ *     "host": "www.example.com",
+ *     "riskLevel": "LOW",
+ *     "recommendations": ["Upgrade to TLS 1.3"],
+ *     ...
+ *   }
+ * ]
  */
 router.get("/:scanId/recommendations", async (req, res) => {
   try {
     const scanId = req.params.scanId;
-    const scanResults = await ScanResult.find({ scanId }).select("_id");
+    const scanResults = await ScanResult.find({
+      scanId,
+      status: { $ne: "failed" }
+    }).populate("assetId");
     const scanResultIds = scanResults.map(r => r._id);
 
     const recommendations = await Recommendation.find({
@@ -380,11 +336,11 @@ router.get("/:scanId/recommendations", async (req, res) => {
  * @param {string} id - Scan ID.
  * @returns {Object} 200 - Success message.
  * 
- * @example
- * // Output:
- * // {
- * //   "message": "Scan cancelled successfully"
- * // }
+ * ---
+ * OUTPUT EXAMPLE:
+ * {
+ *   "message": "Scan cancelled successfully"
+ * }
  */
 router.patch("/:id/cancel", async (req, res) => {
   try {
@@ -414,20 +370,19 @@ router.patch("/:id/cancel", async (req, res) => {
  * @param {string} domainId - Target Domain ID.
  * @returns {Object} 200 - Total count and list of scans.
  * 
- * @example
- * // Output:
- * // {
- * //   "total": 2,
- * //   "scans": [
- * //     {
- * //       "_id": "64f2b3c4d5e6f7a8b9c0d1e2",
- * //       "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
- * //       "status": "completed",
- * //       "createdAt": "2023-09-01T12:00:00.000Z",
- * //       ...
- * //     }
- * //   ]
- * // }
+ * ---
+ * OUTPUT EXAMPLE:
+ * {
+ *   "total": 2,
+ *   "scans": [
+ *     {
+ *       "_id": "64f2b3c4d5e6f7a8b9c0d1e2",
+ *       "domainId": "64f1a2b3c4d5e6f7a8b9c0d1",
+ *       "status": "completed",
+ *       "createdAt": "2023-09-01T12:00:00.000Z"
+ *     }
+ *   ]
+ * }
  */
 router.get("/domain/:domainId", async (req, res) => {
   try {

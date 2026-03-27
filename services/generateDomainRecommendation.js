@@ -76,20 +76,20 @@ DOMAIN CRYPTOGRAPHIC SUMMARY
 
 Domain: ${summary.domain}
 
-Total Assets: ${summary.assets.total_assets}
-Scanned Assets: ${summary.assets.scanned_assets}
+Total Assets: ${summary.assets.totalAssets}
+Scanned Assets: ${summary.assets.scannedAssets}
 
-PQC Ready Assets: ${summary.pqc_readiness.pqc_ready_assets}
-Migration Ready Assets: ${summary.pqc_readiness.migration_ready_assets}
-Legacy Crypto Assets: ${summary.pqc_readiness.legacy_crypto_assets}
+PQC Ready Assets: ${summary.pqcReadiness.pqcReadyAssets}
+Migration Ready Assets: ${summary.pqcReadiness.migrationReadyAssets}
+Legacy Crypto Assets: ${summary.pqcReadiness.legacyCryptoAssets}
 
-Average PQC Score: ${summary.pqc_readiness.average_score}
+Average PQC Score: ${summary.pqcReadiness.averageScore}
 
-Weak Cipher Instances: ${summary.risks.weak_cipher_assets}
+Weak Cipher Instances: ${summary.risks.weakCipherAssets}
 
 TLS Version Distribution:
 
-${Object.entries(summary.tls_distribution)
+${Object.entries(summary.tlsDistribution)
   .map(([k, v]) => `${k}: ${v}`)
   .join("\n")}
 

@@ -9,46 +9,51 @@ function deriveMLFeatures(scan) {
   const features = {};
 
   // TLS VERSION (keep as string)
-  features.tls_version = scan.tls_version || "nan";
+  features.tls_version = scan.negotiated?.tlsVersion || "nan";
 
   // CIPHER (string)
-  features.cipher = scan.cipher || "nan";
+  features.cipher = scan.negotiated?.cipher || "nan";
 
   // KEY EXCHANGE
-  features.key_exchange = scan.key_exchange || "nan";
+  features.key_exchange = scan.negotiated?.keyExchange || "nan";
 
   // SIGNATURE ALGORITHM
-  features.signature_algorithm = scan.signature_algorithm || "nan";
+  features.signature_algorithm = scan.certificate?.signatureAlgorithm || "nan";
 
   // PQC FEATURES
-  features.pqc_key_exchange = scan.pqc_key_exchange || "nan";
-  features.pqc_signature = scan.pqc_signature || "nan";
+  // Assuming pqc.negotiated contains the PQC algorithms used
+  features.pqc_key_exchange = (scan.pqc?.negotiated && scan.pqc.negotiated.length > 0)
+    ? scan.pqc.negotiated[0]
+    : "nan";
+  features.pqc_signature = (scan.pqc?.negotiated && scan.pqc.negotiated.length > 1)
+    ? scan.pqc.negotiated[1]
+    : "nan";
 
   // HYBRID PQC (boolean)
-  features.hybrid_pqc = Boolean(scan.hybrid_pqc);
+  features.hybrid_pqc = Boolean(scan.pqc?.negotiated && scan.pqc.negotiated.length > 0);
 
   // NUMBER OF SUPPORTED TLS VERSIONS
   features.supported_tls_versions_count =
-    scan.supported_tls_versions ? scan.supported_tls_versions.length : 0;
+    scan.supported?.tlsVersions ? scan.supported.tlsVersions.length : 0;
 
   // NUMBER OF CIPHER SUITES
   features.cipher_suites_count =
-    scan.cipher_suites ? scan.cipher_suites.length : 0;
+    scan.supported?.cipherSuites ? scan.supported.cipherSuites.length : 0;
 
   // NUMBER OF WEAK CIPHERS
   features.weak_cipher_count =
-    scan.weak_ciphers ? scan.weak_ciphers.length : 0;
+    scan.weakCiphers ? scan.weakCiphers.length : 0;
 
-  // KEY SIZE
-  features.key_size = scan.key_size || 0;
+  // KEY SIZE (Using certificate public key size)
+  features.key_size = scan.certificate?.publicKey?.size || 0;
 
   // PFS SUPPORT
-  features.pfs_supported = Boolean(scan.pfs_supported);
+  features.pfs_supported = Boolean(scan.pfsSupported);
 
   // RSA USED
   features.rsa_used =
-    scan.signature_algorithm &&
-    scan.signature_algorithm.toUpperCase().includes("RSA");
+    scan.certificate?.signatureAlgorithm &&
+    scan.certificate.signatureAlgorithm.toUpperCase().includes("RSA");
 
   return features;
 }

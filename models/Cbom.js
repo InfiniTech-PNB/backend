@@ -1,65 +1,128 @@
-/**
- * @typedef {Object} Cbom
- * @description Cryptographic Bill of Materials (CBOM).
- * Stores a comprehensive inventory of all cryptographic assets detected during a scan.
- * @property {ObjectId} scanId - Reference to the Scan that generated this CBOM.
- * @property {Array<Object>} algorithms - List of detected cryptographic algorithms.
- * @property {Array<Object>} keys - List of detected cryptographic keys.
- * @property {Array<Object>} protocols - List of detected protocols (TLS version, etc.).
- * @property {Array<Object>} certificates - List of detected X.509 certificates.
- */
-
 const mongoose = require("mongoose");
 
 const CbomSchema = new mongoose.Schema({
+
   scanId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Scan",
     required: true
   },
 
+  // 🔥 NEW → mode support
+  mode: {
+    type: String,
+    enum: ["aggregate", "per_asset"],
+    required: true
+  },
+
+  // 🔥 NEW → asset list (for aggregate)
+  assets: [String],
+
+  // =========================
+  // ALGORITHMS
+  // =========================
   algorithms: [
     {
+      asset: String,
       name: String,
-      asset_type: String,
+      assetType: String,
       primitive: String,
       mode: String,
-      classical_security_level: String,
+      classicalSecurityLevel: String,
       oid: String
     }
   ],
 
+  // =========================
+  // KEYS
+  // =========================
   keys: [
     {
+      asset: String,
       name: String,
-      asset_type: String,
+      assetType: String,
       id: String,
       state: String,
       size: Number,
-      creation_date: String,
-      activation_date: String
+      creationDate: String,
+      activationDate: String
     }
   ],
 
+  // =========================
+  // PROTOCOLS
+  // =========================
   protocols: [
     {
+      asset: String,
       name: String,
-      version: [String],
-      cipher_suites: [String],
+      version: String, // 🔥 FIX (not array)
+      cipherSuites: [String],
+      alpn: String, // 🔥 NEW
       oid: String
     }
   ],
 
+  // =========================
+  // CERTIFICATES (MAJOR UPDATE)
+  // =========================
   certificates: [
     {
-      name: String,
-      subject_name: String,
-      issuer_name: String,
-      validity_period: String,
-      signature_algorithm_reference: String,
-      subject_public_key_reference: Number,
-      certificate_format: String,
-      certificate_extension: String
+      // 🔥 IMPORTANT → link to asset
+      asset: String,
+
+      // -------------------------
+      // LEAF CERTIFICATE
+      // -------------------------
+      leafCertificate: {
+        subjectName: String,
+        issuerName: String,
+
+        validityPeriod: {
+          notBefore: String,
+          notAfter: String
+        },
+
+        signatureAlgorithmReference: String,
+        subjectPublicKeyReference: String,
+
+        certificateFormat: String,
+
+        certificateExtension: mongoose.Schema.Types.Mixed,
+
+        fingerprintSha256: String,
+
+        // 🔥 NEW → history
+        certificateHistory: [
+          {
+            issuer: String,
+            notBefore: String,
+            notAfter: String
+          }
+        ]
+      },
+
+      // -------------------------
+      // CERTIFICATE CHAIN
+      // -------------------------
+      certificateChain: [
+        {
+          subject: String,
+          issuer: String,
+          fingerprintSha256: String,
+          isChainCertificate: Boolean
+        }
+      ]
+    }
+  ],
+
+  // =========================
+  // FAILED ASSETS
+  // =========================
+  failedAssets: [
+    {
+      host: String,
+      reason: String
     }
   ],
 
@@ -67,6 +130,7 @@ const CbomSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
-});
+
+}, { timestamps: true });
 
 module.exports = mongoose.model("Cbom", CbomSchema);
