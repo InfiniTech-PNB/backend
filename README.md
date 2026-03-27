@@ -61,7 +61,7 @@ backend-pnb/
 ### Setup
 1. Navigate to the backend folder:
    ```bash
-   cd backend-pnb
+   cd backend
    ```
 2. Install dependencies:
    ```bash
@@ -87,7 +87,7 @@ backend-pnb/
 
 ### Start the Backend
 ```bash
-cd backend-pnb
+cd backend
 node app.js
 ```
 
