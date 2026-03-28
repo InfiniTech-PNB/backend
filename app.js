@@ -19,6 +19,7 @@ const domainRoutes = require("./routes/domainRoutes");
 const scanRoutes = require("./routes/scan");
 const serviceRoutes = require("./routes/services");
 const chatBotRoutes = require("./routes/chatBot");
+const reportRoutes = require("./routes/reportRoutes");
 
 // Database Configuration
 const { connectDB } = require("./config/connectDB");
@@ -35,6 +36,7 @@ app.use(cors({
     origin: ["http://localhost:5173", "http://localhost:8000","http://localhost:9000"],
     credentials: true
 }));
+require('./services/reportWorker');
 
 /**
  * Health Check Endpoint
@@ -73,6 +75,8 @@ app.use("/api/services", serviceRoutes);
 
 // Chatbot: Ask questions about scan results
 app.use("/api/chatbot", chatBotRoutes);
+
+app.use("/api/reports", reportRoutes);
 
 /**
  * Global Error Handling Middleware
