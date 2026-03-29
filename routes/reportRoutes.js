@@ -54,10 +54,10 @@ router.get("/executive-summary", async (req, res) => {
         else if (avgPqcScore >= 40) rating = "Tier 3 Satisfactory";
 
         // 5. Inventory Breakdown (Specific to Executive HUD)
-        const sslCertCount = await Asset.countDocuments({
+        const tlsCertCount = await Asset.countDocuments({
             $or: [
-                { assetType: { $regex: /web|app|interface|api/i } }, // Types that usually have SSL
-                { port: 443 },                                      // Assets explicitly identified on SSL port
+                { assetType: { $regex: /web|app|interface|api/i } }, // Types that usually have TLS
+                { port: 443 },                                      // Assets explicitly identified on TLS port
                 { "metadata.port": 443 }                            // Checking nested metadata if you use it
             ]
         });
@@ -83,7 +83,7 @@ router.get("/executive-summary", async (req, res) => {
             pqcHybridPosture: Math.round(pqcHybridPosture),
             totalVulnerabilities,
             inventory: {
-                ssl: sslCertCount,
+                tls: tlsCertCount,
                 software: softwareNodes,
                 apis: activeApis,
                 logins: webApps
@@ -118,7 +118,7 @@ router.get('/executive-download', async (req, res) => {
         const totalVulnerabilities = scans.reduce((acc, s) => acc + (s.vulnerabilities?.length || 0), 0);
 
         const inventory = {
-            ssl: await ScanResult.countDocuments({ status: 'success', port: 443 }),
+            tls: await ScanResult.countDocuments({ status: 'success', port: 443 }),
             software: await Asset.countDocuments({ assetType: { $regex: /server/i } }),
             apis: await Asset.countDocuments({ assetType: { $regex: /api/i } }),
             logins: await Asset.countDocuments({ assetType: { $regex: /web/i } })
@@ -181,8 +181,8 @@ router.get('/executive-download', async (req, res) => {
                     <h3 class="text-blue-500 font-black uppercase text-[10px] tracking-widest mb-4">Assets Inventory</h3>
                     <div class="space-y-2">
                         <div class="flex justify-between border-b border-slate-50 pb-1">
-                            <span class="text-[9px] font-bold text-slate-400 uppercase">SSL Certs</span>
-                            <span class="text-xs font-black">${inventory.ssl}</span>
+                            <span class="text-[9px] font-bold text-slate-400 uppercase">TLS Certs</span>
+                            <span class="text-xs font-black">${inventory.tls}</span>
                         </div>
                         <div class="flex justify-between border-b border-slate-50 pb-1">
                             <span class="text-[9px] font-bold text-slate-400 uppercase">Active APIs</span>
@@ -262,27 +262,18 @@ router.get("/schedule-init", async (req, res) => {
 // routes/reportRoutes.js
 router.post("/schedule", async (req, res) => {
     try {
-        const { 
-            scheduleName, // <--- Make sure this is here!
-            reportType, 
-            frequency, 
-            targetDomainId, 
-            includeSections, 
-            startDate, 
-            time, 
-            email 
-        } = req.body;
+        const { scheduleName, targetDomainId, selectedAssets, ...rest } = req.body;
 
         const newSchedule = new ReportSchedule({
             userId: req.user.id,
-            scheduleName, // <--- And here!
-            reportType,
-            frequency,
-            targetDomainId: targetDomainId === 'all' ? null : targetDomainId,
-            includeSections,
-            startDate,
-            time,
-            email
+            scheduleName,
+            targetDomainId,
+            // 🔥 Force the structure here to match the Model
+            selectedAssets: selectedAssets.map(a => ({
+                assetId: a.assetId,
+                businessContext: a.businessContext
+            })),
+            ...rest
         });
 
         await newSchedule.save();

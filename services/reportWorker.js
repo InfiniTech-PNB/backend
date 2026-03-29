@@ -1,16 +1,27 @@
 const cron = require('node-cron');
+const axios = require('axios');
+const mongoose = require('mongoose');
 const ReportSchedule = require('../models/ReportSchedule');
-const generatePdf = require('./generatePdf');
-const { sendReportEmail } = require('./emailService');
-
-const Domain = require('../models/Domain')
+const Domain = require('../models/Domain');
 const Asset = require('../models/Asset');
 const Scan = require('../models/Scan');
 const ScanResult = require('../models/ScanResult');
 const Cbom = require('../models/Cbom');
-const Recommendation = require('../models/Recommendation');
 const Service = require('../models/Service');
-const { computeDomainSummary } = require('./domainService'); // Ensure this is exported from domainService
+const Recommendation = require('../models/Recommendation');
+
+const generatePdf = require('./generatePdf');
+const { sendReportEmail } = require('./emailService');
+const { computeDomainSummary } = require('./domainService');
+const { toCamel, toSnake } = require("../utils/caseConverter");
+const { computeEnvScore, combineScores } = require('../services/scoring');
+const deriveMLFeatures = require("../services/mlFeatureExtractor");
+const generateScore = require("../services/generateScore");
+
+// --- IMPORTANT: Ensure your HTML Generators are imported or defined below ---
+// const { buildAssetsHtml, cbomToHtml, scanResultToHtml } = require('./htmlTemplates');
+
+// ... existing imports (cron, axios, models, caseConverter, scoring) ...
 
 cron.schedule('* * * * *', async () => {
     const now = new Date();
@@ -20,106 +31,176 @@ cron.schedule('* * * * *', async () => {
         const activeSchedules = await ReportSchedule.find({
             time: currentTime,
             isEnabled: true
-        });
+        }).populate('selectedAssets.assetId');
 
         for (const schedule of activeSchedules) {
-            let attachments = [];
+            console.log(`[CRON] 🚀 Starting Deep Audit: ${schedule.scheduleName}`);
 
-            // 1. Determine which domains to process
-            let domainIds = [];
-            if (schedule.targetDomainId && schedule.targetDomainId !== 'all') {
-                domainIds = [schedule.targetDomainId];
-            } else {
-                // If 'all', find every domain that has at least one asset
-                domainIds = await Asset.distinct('domainId');
-            }
+            try {
+                // --- STEP 1: ASSET PREP & SCAN ---
+                const domainId = schedule.targetDomainId;
+                const assetIds = schedule.selectedAssets.map(item =>
+                    item.assetId?._id || item.assetId
+                ).filter(id => id != null);
 
-            // 2. Loop through each Domain to generate domain-specific reports
-            for (const dId of domainIds) {
-                // Fetch domain details for naming the files
-                const domainDoc = await Domain.findById(dId).lean();
-                const dName = domainDoc ? domainDoc.domainName.replace(/\./g, '_') : dId;
-                const dQuery = { domainId: dId };
+                if (assetIds.length === 0) continue;
 
-                // --- MODULE 1: ASSETS (Per Domain) ---
+                const dbAssets = await Asset.find({ _id: { $in: assetIds } });
+                const services = await Service.find({ assetId: { $in: assetIds } });
+
+                const serviceMap = {};
+                services.forEach(s => {
+                    const id = s.assetId.toString();
+                    if (!serviceMap[id]) serviceMap[id] = [];
+                    serviceMap[id].push({ port: s.port, protocol_name: s.protocolName });
+                });
+
+                const scannerAssets = dbAssets.map(a => ({
+                    host: a.host,
+                    ip: a.ip,
+                    services: serviceMap[a._id.toString()] || []
+                }));
+
+                // Call Scanner
+                const scanRecord = await Scan.create({ domainId, scanType: "deep", assets: assetIds, status: "pending", startedAt: new Date() });
+                const scannerResponse = await axios.post("http://localhost:8000/scan", { assets: scannerAssets, scan_type: "soft" });
+
+                // --- STEP 2: SCORING & INSERTION ---
+                const resultsToInsert = [];
+                const assetLookup = {};
+                dbAssets.forEach(a => { assetLookup[a.host] = a._id; });
+
+                for (const raw of scannerResponse.data.results) {
+                    const assetId = assetLookup[raw.host];
+                    const entry = schedule.selectedAssets.find(sa => (sa.assetId?._id || sa.assetId).toString() === assetId.toString());
+                    const bContext = entry?.businessContext || { assetCriticality: 5, confidentialityWeight: 5, integrityWeight: 5, availabilityWeight: 5, slaRequirement: 5, remediationDifficulty: 5, dependentServices: 0 };
+
+                    const camelRaw = toCamel(raw);
+                    let mlScore = 0;
+                    if (camelRaw.status === "success") {
+                        try {
+                            const features = deriveMLFeatures(camelRaw);
+                            const mlRes = await axios.post("http://localhost:9000/pqc-score", { features });
+                            mlScore = await generateScore(mlRes.data.scores[0], camelRaw);
+                        } catch (e) { console.error("Scoring failed"); }
+                    }
+
+                    resultsToInsert.push({
+                        scanId: scanRecord._id,
+                        assetId,
+                        ...camelRaw,
+                        pqcReadyScore: combineScores(mlScore, computeEnvScore(bContext)),
+                        mlScore,
+                        envScore: computeEnvScore(bContext),
+                        businessContext: bContext
+                    });
+                }
+
+                await ScanResult.insertMany(resultsToInsert);
+                scanRecord.status = "completed";
+                scanRecord.completedAt = new Date();
+                await scanRecord.save();
+
+                // ==========================================
+                // 🔥 STEP 3: CORRECTED CBOM GENERATION
+                // ==========================================
+
+                // 1. Fetch from DB (Ensures we have the full structure including Mongoose virtuals/objects)
+                const scanResults = await ScanResult.find({ scanId: scanRecord._id }).populate("assetId");
+
+                // 2. Map to Snake Case (Matching your router logic exactly)
+                const snakeScanResults = scanResults.map(r => {
+                    const plain = r.toObject();
+                    return toSnake({
+                        host: r.assetId?.host || r.host,
+                        ip: r.assetId?.ip || r.ip,
+                        port: r.port,
+                        protocol: r.protocol,
+                        status: r.status,
+                        failure_reason: r.failureReason,
+                        negotiated: plain.negotiated,
+                        supported: plain.supported,
+                        pqc: plain.pqc,
+                        certificate: plain.certificate,
+                        weak_ciphers: plain.weakCiphers,
+                        pfs_supported: plain.pfsSupported,
+                        vulnerabilities: plain.vulnerabilities
+                    });
+                });
+
+                // 3. Call FastAPI with actual data
+                const cbomRes = await axios.post("http://localhost:8000/cbom", {
+                    results: snakeScanResults,
+                    mode: "per_asset" // Using per_asset for detailed data mapping
+                });
+
+                const cbomData = toCamel(cbomRes.data);
+                const rawAssets = cbomData.cbom.assets || [];
+
+                // 4. Manual Flattening Logic (From your provided code)
+                let algorithms = [], keys = [], protocols = [], certificates = [];
+                const assets = rawAssets.map(a => a.asset);
+
+                rawAssets.forEach(a => {
+                    const host = a.asset;
+                    if (a.algorithms) a.algorithms.forEach(algo => algorithms.push({ ...algo, asset: host }));
+                    if (a.keys) a.keys.forEach(k => keys.push({ ...k, asset: host }));
+                    if (a.protocols) a.protocols.forEach(p => protocols.push({ ...p, asset: host }));
+                    if (a.certificates) a.certificates.forEach(c => certificates.push({ ...c, asset: c.asset || host }));
+                });
+
+                const finalCbom = await Cbom.create({
+                    scanId: scanRecord._id,
+                    mode: "per_asset",
+                    assets,
+                    failedAssets: cbomData.cbom.failedAssets || [],
+                    algorithms,
+                    keys,
+                    protocols,
+                    certificates
+                });
+
+                // ==========================================
+                // --- STEP 4: PDF & EMAIL DELIVERY ---
+                // ==========================================
+                let attachments = [];
+                const domainDoc = await Domain.findById(domainId).lean();
+                const dName = domainDoc?.domainName.replace(/\./g, '_') || 'audit';
+
                 if (schedule.includeSections.assets) {
-                    const assets = await Asset.find(dQuery).lean();
-                    const enrichedAssets = await Promise.all(assets.map(async (asset) => {
-                        const services = await Service.find({ assetId: asset._id }).lean();
-                        return { ...asset, services };
+                    const assets = await Asset.find({domainId}).lean();
+                    const enriched = await Promise.all(assets.map(async (a) => {
+                        const services = await Service.find({ assetId: a._id }).lean();
+                        return { ...a, services };
                     }));
-
-                    if (enrichedAssets.length > 0) {
-                        const html = buildAssetsHtml(enrichedAssets, schedule.scheduleName);
-                        const pdfBuffer = await generatePdf(html);
-                        attachments.push({
-                            filename: `${dName}_Infrastructure_Inventory.pdf`,
-                            content: pdfBuffer
-                        });
+                    if (enriched.length > 0) {
+                        const html = buildAssetsHtml(enriched, schedule.scheduleName);
+                        attachments.push({ filename: `${dName}_Assets.pdf`, content: await generatePdf(html) });
                     }
                 }
 
-                // --- MODULE 2: CBOM (Per Domain) ---
                 if (schedule.includeSections.cboms) {
-                    // 1. First find the latest completed Scan for this domain
-                    const lastScan = await Scan.findOne({ domainId: dId, status: 'completed' })
-                        .sort({ createdAt: -1 })
-                        .lean();
-
-                    if (lastScan) {
-                        // 2. Look for the CBOM using the Scan's ID
-                        // We use lastScan._id because that is the source of truth
-                        const cbomData = await Cbom.findOne({ scanId: lastScan._id }).lean();
-
-                        if (cbomData) {
-                            const html = cbomToHtml(cbomData);
-                            const pdfBuffer = await generatePdf(html);
-                            attachments.push({
-                                filename: `${dName}_CBOM_Registry.pdf`,
-                                content: pdfBuffer
-                            });
-                            console.log(`[CBOM] ✅ Found and attached for ${dName}`);
-                        } else {
-                            console.log(`[CBOM] ❌ Scan found (${lastScan._id}), but no CBOM linked to it.`);
-                        }
-                    } else {
-                        console.log(`[CBOM] ❌ No completed scans found for domain ${dId}`);
-                    }
+                    attachments.push({ filename: `${dName}_CBOM.pdf`, content: await generatePdf(cbomToHtml(finalCbom)) });
                 }
 
-                // --- MODULE 3: SCAN RESULTS / POSTURE (Per Domain) ---
                 if (schedule.includeSections.scanResults) {
-                    const summary = await computeDomainSummary(dId);
-                    const resultsForInventory = await ScanResult.find(dQuery);
-                    const cryptoInventory = [...new Set(resultsForInventory.map(r => r.negotiated?.cipher).filter(Boolean))];
-                    const latestScan = await Scan.findOne(dQuery).sort({ createdAt: -1 }).lean();
+                    const summary = await computeDomainSummary(domainId);
+                    const freshResults = await ScanResult.find({ scanId: scanRecord._id }).populate("assetId").lean();
+                    const recommendations = await Recommendation.find({ scanResultId: { $in: freshResults.map(r => r._id) } }).lean();
+                    const cryptoInventory = [...new Set(freshResults.map(r => r.negotiated?.cipher).filter(Boolean))];
 
-                    if (latestScan && summary) {
-                        const results = await ScanResult.find({ scanId: latestScan._id }).populate("assetId").lean();
-                        const recommendations = await Recommendation.find({
-                            scanResultId: { $in: results.map(r => r._id) }
-                        }).lean();
-
-                        const html = scanResultToHtml(summary, cryptoInventory, results, recommendations, schedule.scheduleName);
-                        const pdfBuffer = await generatePdf(html);
-
-                        attachments.push({
-                            filename: `${dName}_PQC_Posture_Report.pdf`,
-                            content: pdfBuffer
-                        });
-                    }
+                    attachments.push({
+                        filename: `${dName}_Posture.pdf`,
+                        content: await generatePdf(scanResultToHtml(summary, cryptoInventory, freshResults, recommendations, schedule.scheduleName))
+                    });
                 }
-            }
 
-            // --- FINAL DELIVERY ---
-            if (attachments.length > 0) {
                 await sendReportEmail(schedule.email, schedule.scheduleName, attachments);
-                console.log(`[CRON] ✅ Multi-domain audit package delivered to ${schedule.email}`);
-            }
+                console.log(`[CRON] ✅ Full Report delivered to ${schedule.email}`);
+
+            } catch (err) { console.error(`[CRON] Error in ${schedule.scheduleName}:`, err); }
         }
-    } catch (err) {
-        console.error("[CRON] ❌ Worker failure:", err);
-    }
+    } catch (err) { console.error("[CRON] Global failure:", err); }
 });
 
 // --- HTML GENERATORS (One for each PDF Type) ---
