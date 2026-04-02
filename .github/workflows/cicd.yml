@@ -34,3 +34,4 @@ jobs:
           if [ -f /tmp/env_backup ]; then mv /tmp/env_backup .env; fi
     - run: npm ci
     - run: npm run build --if-present
+    - run: sudo pm2 restart backend
