@@ -6,7 +6,7 @@
 
 const { createClient } = require("redis");
 const { sendEmailOtp } = require("./emailService");
-const ExpressError = require("../utils/ExpressError");
+const ExpressError = require("../utils/expressError");
 require("dotenv").config();
 
 // Initialize Redis Client for temporary OTP storage
