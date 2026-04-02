@@ -2,7 +2,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const User = require("../models/User");
-const ExpressError = require("../utils/ExpressError");
+const ExpressError = require("../utils/expressError");
 const catchAsync = require("../utils/catchAsync");
 const { sendOtp, verifyOtp } = require("../services/otpService");
 

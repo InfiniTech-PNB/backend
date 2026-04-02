@@ -6,7 +6,7 @@
  * @returns {Function} - Express middleware function.
  */
 
-const ExpressError = require("../utils/ExpressError");
+const ExpressError = require("../utils/expressError");
 
 const authorizeRoles = (...roles) => {
     return (req, res, next) => {
