@@ -68,7 +68,7 @@ router.get("/stats", async (req, res) => {
         // PQC Ready (from those scanned)
         const pqcReadyCount = await ScanResult.countDocuments({
             status: "success",
-            pqcReadyScore: { $gte: 0.8 }
+            pqcReadyScore: { $gte: 0.9 }
         });
 
         // 2. Fetch only successful scan results to ensure we have cryptographic data
@@ -93,7 +93,7 @@ router.get("/stats", async (req, res) => {
 
         results.forEach(r => {
             // Risk Logic
-            if (r.pqcReadyScore < 0.7) riskDist.high++;
+            if (r.pqcReadyScore < 0.4) riskDist.high++;
             else if (r.pqcReadyScore < 0.9) riskDist.medium++;
             else riskDist.low++;
 
@@ -129,7 +129,7 @@ router.get("/stats", async (req, res) => {
                 host: r.host || r.assetId?.host,
                 ip: r.ip || r.assetId?.ip,
                 assetType: r.assetId?.assetType || "Unknown",
-                risk: r.pqcReadyScore < 0.4 ? 'High' : r.pqcReadyScore < 0.7 ? 'Medium' : 'Low',
+                risk: r.pqcReadyScore < 0.4 ? 'High' : r.pqcReadyScore < 0.9 ? 'Medium' : 'Low',
                 updatedAt: r.updatedAt
             }));
 
