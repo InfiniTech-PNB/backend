@@ -26,6 +26,7 @@ const generateScore = require("../services/generateScore");
 cron.schedule('* * * * *', async () => {
     const now = new Date();
     const currentTime = now.toTimeString().slice(0, 5);
+    const apiUrl=process.env.API_URL;
 
     try {
         const activeSchedules = await ReportSchedule.find({
@@ -63,7 +64,7 @@ cron.schedule('* * * * *', async () => {
 
                 // Call Scanner
                 const scanRecord = await Scan.create({ domainId, scanType: "deep", assets: assetIds, status: "pending", startedAt: new Date() });
-                const scannerResponse = await axios.post("http://localhost:8000/scan", { assets: scannerAssets, scan_type: "soft" });
+                const scannerResponse = await axios.post(`${apiUrl}:8000/scan`, { assets: scannerAssets, scan_type: "soft" });
 
                 // --- STEP 2: SCORING & INSERTION ---
                 const resultsToInsert = [];
@@ -80,7 +81,7 @@ cron.schedule('* * * * *', async () => {
                     if (camelRaw.status === "success") {
                         try {
                             const features = deriveMLFeatures(camelRaw);
-                            const mlRes = await axios.post("http://localhost:9000/pqc-score", { features });
+                            const mlRes = await axios.post(`${apiUrl}:9000/pqc-score`, { features });
                             mlScore = await generateScore(mlRes.data.scores[0], camelRaw);
                         } catch (e) { console.error("Scoring failed"); }
                     }
@@ -129,7 +130,7 @@ cron.schedule('* * * * *', async () => {
                 });
 
                 // 3. Call FastAPI with actual data
-                const cbomRes = await axios.post("http://localhost:8000/cbom", {
+                const cbomRes = await axios.post(`${apiUrl}:8000/cbom`, {
                     results: snakeScanResults,
                     mode: "per_asset" // Using per_asset for detailed data mapping
                 });

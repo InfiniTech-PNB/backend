@@ -55,10 +55,11 @@ router.post("/:id/discover", async (req, res) => {
     }
 
     const domainName = domain.domainName;
+    const apiUrl=process.env.API_URL;
 
     // We ask the discovery service (running locally) to do the heavy lifting
     const result = await axios.post(
-      "http://localhost:8000/discover",
+      `${apiUrl}:8000/discover`,
       { domain: domainName },
       { headers: { "Content-Type": "application/json" } }
     );

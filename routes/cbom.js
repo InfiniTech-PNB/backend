@@ -89,7 +89,8 @@ router.post("/:id", async (req, res) => {
     // =========================
     // 🔥 CALL FASTAPI
     // =========================
-    const response = await axios.post("http://localhost:8000/cbom", {
+    const apiUrl=process.env.API_URL;
+    const response = await axios.post(`${apiUrl}:8000/cbom`, {
       results: snakeScanResults,
       mode: mode === "perAsset" ? "per_asset" : "aggregate"
     });
