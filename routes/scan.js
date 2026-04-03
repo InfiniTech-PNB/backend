@@ -275,7 +275,6 @@ router.post("/:scanId/recommendations", async (req, res) => {
         scanResultId: result._id,
         host: result.host,
         pqcScore: result.pqcReadyScore,
-        riskLevel: ai.risk_level,
         recommendations: ai.recommendations,
         migrationSteps: ai.migration_steps,
         recommendedPqcKex: ai.recommended_pqc_kex,
@@ -305,7 +304,6 @@ router.post("/:scanId/recommendations", async (req, res) => {
  *   {
  *     "_id": "64f4d5e6f7a8b9c0d1e2f3g4",
  *     "host": "www.example.com",
- *     "riskLevel": "LOW",
  *     "recommendations": ["Upgrade to TLS 1.3"],
  *     ...
  *   }

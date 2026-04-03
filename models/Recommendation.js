@@ -24,11 +24,6 @@ const RecommendationSchema = new mongoose.Schema({
 
   pqcScore: Number,
 
-  riskLevel: {
-    type: String,
-    enum: ["LOW", "MEDIUM", "HIGH"]
-  },
-
   recommendations: String,
 
   migrationSteps: [String],

@@ -86,23 +86,6 @@ Key Size: ${scanResult.certificate?.publicKey?.size || "Unknown"}
 PQC Score: ${scanResult.pqcReadyScore || 0}
 
 ------------------------------------------------------------
-RISK CLASSIFICATION LOGIC
-------------------------------------------------------------
-
-HIGH:
-- TLS < 1.2
-- RSA key exchange
-- Key size < 2048
-
-MEDIUM:
-- TLS 1.2 / 1.3 with classical crypto
-- X25519 / ECDHE
-- RSA / ECDSA signatures
-
-LOW:
-- Hybrid PQC present
-
-------------------------------------------------------------
 RESPONSE REQUIREMENTS
 ------------------------------------------------------------
 
@@ -120,7 +103,6 @@ RESPONSE FORMAT
 ------------------------------------------------------------
 
 {
-  "risk_level": "LOW | MEDIUM | HIGH",
   "recommendations": "Asset-specific explanation referencing TLS version, cipher, and algorithms",
   "migration_steps": [
     "step 1 tailored to configuration",

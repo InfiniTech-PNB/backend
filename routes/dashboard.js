@@ -1,10 +1,3 @@
-/**
- * @file dashboard.js
- * @description These routes provide a high-level "bird's-eye view" of your entire security 
- * ecosystem. It aggregates data from every domain and asset to give you a single dashboard 
- * showing your overall risk and PQC readiness.
- */
-
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middlewares/authMiddleware");
@@ -13,49 +6,27 @@ const Domain = require("../models/Domain");
 const Asset = require("../models/Asset");
 const ScanResult = require("../models/ScanResult");
 
-// Apply authentication to all dashboard routes
 router.use(authMiddleware);
 
-/**
- * @route GET /api/dashboard/stats
- * @description Aggregates stats from Domains, Assets, and ScanResults.
- * Includes total counts, PQC-ready assets (score >= 0.8), and high-risk domains.
- *
- * PQC Scoring Thresholds:
- * 0.00 – 0.40 → Quantum Vulnerable (HIGH RISK)
- * 0.40 – 0.70 → Migration Required (MEDIUM RISK)
- * 0.70 – 0.9 -> PQC Ready
- * 0.9 - 1.0 -> PQC Safe
- *
- * @returns {Object} 200 - Stats object containing totalDomains, totalAssets, highRiskDomains, and pqcReadyAssets.
- * @returns {Error} 500 - Aggregation failure.
- * 
- * ---
- * OUTPUT EXAMPLE:
- * {
- *   "totalDomains": 5,
- *   "totalAssets": 120,
- *   "pqcReadyAssets": 45,
- *   "highRiskDomains": 2
- * }
- */
+// ✅ SINGLE SOURCE OF TRUTH FOR RISK
+const getRiskLevel = (score) => {
+    if (score < 0.4) return 'High';
+    if (score < 0.7) return 'Medium';
+    return 'Low';
+};
+
 router.get("/stats", async (req, res) => {
     try {
-        // 1. Base Inventory Counts (Direct from Asset collection)
-        // 1. Base Inventory Counts (Using Case-Insensitive Regex)
         const totalAssets = await Asset.countDocuments();
 
-        // This looks for any string containing "web" (covers "Web", "web", "Web App")
         const publicWebApps = await Asset.countDocuments({
             assetType: { $regex: /web/i }
         });
 
-        // This looks for any string containing "api"
         const apis = await Asset.countDocuments({
             assetType: { $regex: /api/i }
         });
 
-        // This looks for "server"
         const servers = await Asset.countDocuments({
             assetType: { $regex: /server/i }
         });
@@ -65,21 +36,24 @@ router.get("/stats", async (req, res) => {
         const scannedAssetsCount = await ScanResult.distinct("assetId", { status: "success" });
         const totalScanned = scannedAssetsCount.length;
 
-        // PQC Ready (from those scanned)
-        const pqcReadyCount = await ScanResult.countDocuments({
-            status: "success",
-            pqcReadyScore: { $gte: 0.9 }
-        });
-
-        // 2. Fetch only successful scan results to ensure we have cryptographic data
         const results = await ScanResult.find({ status: "success" }).populate('assetId');
 
-        // 3. Define Time Windows for Certificates
+        let pqcSafeCount = 0;
+        let pqcReadyCount = 0;
+        let pqcVulnerableCount = 0;
+
+        results.forEach(r => {
+            const score = r.pqcReadyScore;
+
+            if (score >= 0.9) pqcSafeCount++;
+            else if (score >= 0.7) pqcReadyCount++;
+            else pqcVulnerableCount++;
+        });
+
         const now = new Date();
         const thirtyDays = new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000));
         const ninetyDays = new Date(now.getTime() + (90 * 24 * 60 * 60 * 1000));
 
-        // 4. Detailed Aggregation from Results
         let riskDist = { high: 0, medium: 0, low: 0 };
         let certTimeline = { urgent: 0, soon: 0, safe: 0 };
 
@@ -88,16 +62,18 @@ router.get("/stats", async (req, res) => {
         });
 
         const ipv6InventoryCount = await Asset.countDocuments({
-            ip: { $regex: /:/ } // Simple check for IPv6 colons
+            ip: { $regex: /:/ }
         });
 
         results.forEach(r => {
-            // Risk Logic
-            if (r.pqcReadyScore < 0.4) riskDist.high++;
-            else if (r.pqcReadyScore < 0.9) riskDist.medium++;
+            // ✅ CONSISTENT RISK LOGIC
+            const level = getRiskLevel(r.pqcReadyScore);
+
+            if (level === 'High') riskDist.high++;
+            else if (level === 'Medium') riskDist.medium++;
             else riskDist.low++;
 
-            // Expiry Logic (Safe parsing of certificate dates)
+            // Expiry Logic
             if (r.certificate?.expires) {
                 const expiryDate = new Date(r.certificate.expires);
                 if (expiryDate <= thirtyDays) certTimeline.urgent++;
@@ -106,7 +82,6 @@ router.get("/stats", async (req, res) => {
             }
         });
 
-        // 5. Crypto Overview Mapping (Right Sidebar)
         const cryptoOverview = results
             .sort((a, b) => b.updatedAt - a.updatedAt)
             .slice(0, 10)
@@ -121,7 +96,6 @@ router.get("/stats", async (req, res) => {
                 };
             });
 
-        // 6. Recent Assets Mapping (Table)
         const recentAssets = results
             .sort((a, b) => b.updatedAt - a.updatedAt)
             .slice(0, 5)
@@ -129,17 +103,17 @@ router.get("/stats", async (req, res) => {
                 host: r.host || r.assetId?.host,
                 ip: r.ip || r.assetId?.ip,
                 assetType: r.assetId?.assetType || "Unknown",
-                risk: r.pqcReadyScore < 0.4 ? 'High' : r.pqcReadyScore < 0.9 ? 'Medium' : 'Low',
+                // ✅ SAME LOGIC USED HERE
+                risk: getRiskLevel(r.pqcReadyScore),
                 updatedAt: r.updatedAt
             }));
 
-        // 7. Aggregate JSON Response
         res.json({
             totalAssets,
             publicWebApps,
             apis,
             servers,
-            // CRITICAL: Ensure these keys match your StatCards in HomeTab.jsx
+
             expiringCerts: certTimeline.urgent,
             highRiskAssets: riskDist.high,
 
@@ -147,34 +121,41 @@ router.get("/stats", async (req, res) => {
             pqcReadyAssets: pqcReadyCount,
 
             typeDistribution: [
-                { name: 'Web Applications', value: publicWebApps, color: '#3b82f6' }, // Blue
-                { name: 'APIs', value: apis, color: '#06b6d4' }, // Cyan
-                { name: 'Servers', value: servers, color: '#10b981' }, // Green
-                { name: 'Load Balancers', value: loadBalancers, color: '#f59e0b' }, // Orange
-                { name: 'Other', value: Math.max(0, totalAssets - (publicWebApps + apis + servers + loadBalancers)), color: '#8b5cf6' } // Purple
+                { name: 'Web Applications', value: publicWebApps, color: '#3b82f6' },
+                { name: 'APIs', value: apis, color: '#06b6d4' },
+                { name: 'Servers', value: servers, color: '#10b981' },
+                { name: 'Load Balancers', value: loadBalancers, color: '#f59e0b' },
+                { name: 'Other', value: Math.max(0, totalAssets - (publicWebApps + apis + servers + loadBalancers)), color: '#8b5cf6' }
             ],
+
             riskDistribution: [
                 { name: 'High', value: riskDist.high },
                 { name: 'Medium', value: riskDist.medium },
                 { name: 'Low', value: riskDist.low }
             ],
+
             certExpiry: [
                 { name: '0-30 Days', value: certTimeline.urgent },
                 { name: '30-90 Days', value: certTimeline.soon },
                 { name: '> 90 Days', value: certTimeline.safe }
             ],
+
             ipBreakdown: {
                 ipv4: totalAssets > 0 ? Math.round((ipv4InventoryCount / totalAssets) * 100) : 0,
                 ipv6: totalAssets > 0 ? Math.round((ipv6InventoryCount / totalAssets) * 100) : 0
             },
+
             auditCoverage: [
-                { name: 'Scanned', value: totalScanned, color: '#10b981' }, // Green
-                { name: 'Unscanned', value: Math.max(0, totalAssets - totalScanned), color: '#334155' } // Slate
+                { name: 'Scanned', value: totalScanned, color: '#10b981' },
+                { name: 'Unscanned', value: Math.max(0, totalAssets - totalScanned), color: '#334155' }
             ],
+
             pqcAdoption: [
-                { name: 'PQC Safe', value: pqcReadyCount, color: '#8b5cf6' }, // Purple
-                { name: 'Vulnerable', value: Math.max(0, totalScanned - pqcReadyCount), color: '#ef4444' } // Red
+                { name: 'PQC Safe', value: pqcSafeCount, color: '#8b5cf6' },   // Purple
+                { name: 'PQC Ready', value: pqcReadyCount, color: '#22c55e' }, // Green
+                { name: 'Vulnerable', value: pqcVulnerableCount, color: '#ef4444' } // Red
             ],
+
             recentAssets,
             cryptoOverview
         });
