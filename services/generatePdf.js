@@ -11,6 +11,7 @@ const puppeteer = require("puppeteer");
 async function generatePdf(html) {
   // Add these specific flags for AWS EC2 / Linux Environments
   const browser = await puppeteer.launch({
+    executablePath: '/root/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
     headless: "new", 
     args: [
       "--no-sandbox",                // Required for Linux/Root users
