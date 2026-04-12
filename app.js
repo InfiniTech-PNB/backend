@@ -33,9 +33,20 @@ app.use(express.urlencoded({ extended: true })); // Parses urlencoded bodies
 
 // CORS Configuration: Allows communication from Frontend (5173) and Python services (8000)
 // const apiUrl=process.env.API_URL;
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://ec2-16-112-159-207.ap-south-2.compute.amazonaws.com"
+];
+
 app.use(cors({
-    origin: "http://localhost:5173",
-    credentials: true
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
 }));
 require('./services/reportWorker');
 
