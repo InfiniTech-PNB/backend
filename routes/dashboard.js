@@ -8,7 +8,7 @@ const ScanResult = require("../models/ScanResult");
 
 router.use(authMiddleware);
 
-// ✅ SINGLE SOURCE OF TRUTH FOR RISK
+// SINGLE SOURCE OF TRUTH FOR RISK
 const getRiskLevel = (score) => {
     if (score < 0.4) return 'High';
     if (score < 0.7) return 'Medium';
@@ -66,7 +66,7 @@ router.get("/stats", async (req, res) => {
         });
 
         results.forEach(r => {
-            // ✅ CONSISTENT RISK LOGIC
+            // CONSISTENT RISK LOGIC
             const level = getRiskLevel(r.pqcReadyScore);
 
             if (level === 'High') riskDist.high++;
@@ -82,31 +82,43 @@ router.get("/stats", async (req, res) => {
             }
         });
 
-        const cryptoOverview = results
-            .sort((a, b) => b.updatedAt - a.updatedAt)
-            .slice(0, 10)
-            .map(r => {
-                const pqcAlgo = r.pqc?.negotiated?.[0];
-                return {
-                    asset: r.host || r.assetId?.host || "Unknown",
-                    displayAlgo: pqcAlgo || r.negotiated?.cipher?.split('_')[0] || "Unknown",
-                    isPqc: !!pqcAlgo,
-                    keyLength: r.negotiated?.serverTempKeySize || 2048,
-                    tls: r.negotiated?.tlsVersion || "1.2"
-                };
-            });
+        const latestByAsset = new Map();
 
-        const recentAssets = results
-            .sort((a, b) => b.updatedAt - a.updatedAt)
-            .slice(0, 5)
-            .map(r => ({
-                host: r.host || r.assetId?.host,
-                ip: r.ip || r.assetId?.ip,
-                assetType: r.assetId?.assetType || "Unknown",
-                // ✅ SAME LOGIC USED HERE
-                risk: getRiskLevel(r.pqcReadyScore),
-                updatedAt: r.updatedAt
-            }));
+        results
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .forEach(r => {
+            const key = r.host || r.assetId?._id?.toString();
+
+            if (!latestByAsset.has(key)) {
+            latestByAsset.set(key, r);
+            }
+        });
+
+        const uniqueLatestResults = Array.from(latestByAsset.values());
+
+        const cryptoOverview = uniqueLatestResults
+        .slice(0, 10)
+        .map(r => {
+            const pqcAlgo = r.pqc?.negotiated?.[0];
+
+            return {
+            asset: r.host || r.assetId?.host || "Unknown",
+            displayAlgo: pqcAlgo || r.negotiated?.cipher?.split('_')[0] || "Unknown",
+            isPqc: !!pqcAlgo,
+            keyLength: r.negotiated?.serverTempKeySize || 2048,
+            tls: r.negotiated?.tlsVersion || "1.2"
+            };
+        });
+
+        const recentAssets = uniqueLatestResults
+        .slice(0, 5)
+        .map(r => ({
+            host: r.host || r.assetId?.host,
+            ip: r.ip || r.assetId?.ip,
+            assetType: r.assetId?.assetType || "Unknown",
+            risk: getRiskLevel(r.pqcReadyScore),
+            updatedAt: r.updatedAt
+        }));
 
         res.json({
             totalAssets,

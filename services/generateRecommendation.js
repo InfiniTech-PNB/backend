@@ -34,36 +34,80 @@ async function generateRecommendation(scanResult) {
 SYSTEM ROLE:
 You are a senior cryptography auditor and post-quantum migration specialist.
 
-Your task is to generate PRECISE, NON-GENERIC, ASSET-SPECIFIC PQC migration recommendations.
-
-You MUST tailor your response based strictly on the provided TLS configuration.
-Avoid generic or repetitive recommendations.
+Your task is to generate STRICTLY ASSET-SPECIFIC PQC migration recommendations.
 
 ------------------------------------------------------------
-CRITICAL INSTRUCTION (ANTI-REPETITION)
+CRITICAL ENFORCEMENT RULES (MANDATORY)
 ------------------------------------------------------------
 
-- DO NOT produce generic recommendations.
-- DO NOT repeat the same explanation across different inputs.
-- Your response MUST explicitly reference:
-  - TLS version
-  - Cipher suite
-  - Key exchange
-  - Signature algorithm
-  - Key size
+1. You MUST use ONLY the provided input values
+2. You MUST NOT assume missing data
+3. Missing data → "Not present in scan results"
 
-- If two inputs differ, the recommendation MUST differ.
-
-------------------------------------------------------------
-CRYPTOGRAPHIC FACTS
-------------------------------------------------------------
-
-- RSA, ECDSA, ECDH, X25519, X448 → vulnerable to quantum attacks
-- TLS 1.3 is NOT quantum-safe
-- Hybrid PQC = current best practice
+4. You MUST explicitly reference ALL:
+   - TLS version
+   - Cipher suite
+   - Key exchange
+   - Signature algorithm
+   - Key size
 
 ------------------------------------------------------------
-APPROVED PQC ALGORITHMS
+ANTI-GENERIC ENFORCEMENT
+------------------------------------------------------------
+
+❌ DO NOT give generic advice like:
+- "improve security"
+- "upgrade encryption"
+- "use PQC"
+
+✔ EACH recommendation MUST:
+- Point to a specific weakness
+- Be derived from input values
+- Change if input changes
+
+------------------------------------------------------------
+INPUT (STRICT SOURCE OF TRUTH)
+------------------------------------------------------------
+
+TLS Version: ${scanResult.negotiated?.tlsVersion || "Unknown"}
+Cipher Suite: ${scanResult.negotiated?.cipher || "Unknown"}
+Key Exchange: ${scanResult.negotiated?.keyExchange || "Unknown"}
+Signature Algorithm: ${scanResult.certificate?.signatureAlgorithm || "Unknown"}
+Key Size: ${scanResult.certificate?.publicKey?.size || "Unknown"}
+PQC Score: ${scanResult.pqcReadyScore || 0}
+
+------------------------------------------------------------
+WEAKNESS MAPPING RULES (MANDATORY)
+------------------------------------------------------------
+
+- TLS <1.2 → obsolete protocol
+- TLS 1.2 → lacks modern features
+- TLS 1.3 → strong but not quantum-safe
+
+- RSA key exchange → no forward secrecy
+- ECDH/ECDHE/X25519 → quantum vulnerable
+
+- RSA/ECDSA signatures → quantum vulnerable
+
+- Key size <2048 → weak key
+
+------------------------------------------------------------
+RECOMMENDATION LOGIC (STRICT)
+------------------------------------------------------------
+
+You MUST:
+
+1. Identify exact weaknesses
+2. Explain them technically
+3. Provide corrective steps
+
+Each migration step MUST:
+- Directly fix a weakness
+- Be actionable
+- Be configuration-specific
+
+------------------------------------------------------------
+ALLOWED PQC ALGORITHMS
 ------------------------------------------------------------
 
 Key Exchange:
@@ -75,45 +119,36 @@ Falcon
 SPHINCS+
 
 ------------------------------------------------------------
-INPUT (STRICTLY ANALYZE)
+HARD RESTRICTIONS
 ------------------------------------------------------------
 
-TLS Version: ${scanResult.negotiated?.tlsVersion || "Unknown"}
-Cipher Suite: ${scanResult.negotiated?.cipher || "Unknown"}
-Key Exchange: ${scanResult.negotiated?.keyExchange || "Unknown"}
-Signature Algorithm: ${scanResult.certificate?.signatureAlgorithm || "Unknown"}
-Key Size: ${scanResult.certificate?.publicKey?.size || "Unknown"}
-PQC Score: ${scanResult.pqcReadyScore || 0}
+❌ DO NOT include risk level
+❌ DO NOT estimate risk
+❌ DO NOT use words like: high risk, low risk, vulnerable risk score
 
 ------------------------------------------------------------
-RESPONSE REQUIREMENTS
+OUTPUT RULES
 ------------------------------------------------------------
 
 - Output MUST be valid JSON only
-- No markdown, no explanation outside JSON
-- "migration_steps" MUST be exactly 3 steps
-
-- Recommendations MUST:
-  ✔ Mention specific weaknesses from input
-  ✔ Be technically different depending on configuration
-  ✔ Not be generic phrases like "upgrade to PQC" only
+- No markdown
+- No extra text
+- "migration_steps" MUST be exactly 3
 
 ------------------------------------------------------------
 RESPONSE FORMAT
 ------------------------------------------------------------
 
 {
-  "recommendations": "Asset-specific explanation referencing TLS version, cipher, and algorithms",
+  "recommendations": "Technical explanation referencing TLS, cipher, key exchange, signature, and key size",
   "migration_steps": [
-    "step 1 tailored to configuration",
-    "step 2 tailored to configuration",
-    "step 3 tailored to configuration"
+    "step 1 tied to weakness",
+    "step 2 tied to weakness",
+    "step 3 tied to weakness"
   ],
   "recommended_pqc_kex": "ML-KEM-768",
   "recommended_pqc_signature": "CRYSTALS-Dilithium"
 }
-
-If the recommendation is similar to a generic template, REWRITE it to include specific technical reasoning.
 `;
 
   try {
@@ -149,7 +184,6 @@ If the recommendation is similar to a generic template, REWRITE it to include sp
     const parsed = JSON.parse(jsonText);
 
     return {
-      risk_level: sanitizeRisk(parsed.risk_level),
       recommendations: parsed.recommendations || "",
       migration_steps: parsed.migration_steps || [],
       recommended_pqc_kex: parsed.recommended_pqc_kex || "ML-KEM-768",
@@ -162,7 +196,6 @@ If the recommendation is similar to a generic template, REWRITE it to include sp
     console.error("LLM recommendation error:", err.message);
 
     return {
-      risk_level: "MEDIUM",
       recommendations:
         "Automatic PQC analysis failed. Classical cryptography detected. Migration toward hybrid PQC TLS is recommended.",
       migration_steps: [],

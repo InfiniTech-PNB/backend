@@ -70,7 +70,7 @@ async function generateScore(mlScore, result) {
         .update(canonical + "_" + mlScore)
         .digest("hex");
 
-    // ✅ CACHE HIT → RETURN SAME RESULT
+    // CACHE HIT → RETURN SAME RESULT
     if (cache.has(cacheKey)) {
         return cache.get(cacheKey);
     }

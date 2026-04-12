@@ -119,10 +119,10 @@ router.get("/:domainId/summary", async (req, res) => {
     // Count total tracked assets
     const totalAssets = await Asset.countDocuments({ domainId });
 
-    // Find the most recent scan job
-    const latestScan = await Scan.findOne({ domainId }).sort({ startedAt: -1 });
+    // Find ALL successful scans for this domain
+    const completedScans = await Scan.find({ domainId, status: "completed" });
 
-    if (!latestScan) {
+    if (!completedScans || completedScans.length === 0) {
       return res.json({
         domain: domain.domainName,
         totalAssets,
@@ -130,16 +130,10 @@ router.get("/:domainId/summary", async (req, res) => {
       });
     }
 
-    if (latestScan.status !== "completed") {
-      return res.json({
-        domain: domain.domainName,
-        totalAssets,
-        message: "Scan not completed"
-      });
-    }
+    const scanIds = completedScans.map(s => s._id);
 
-    // Fetch individual scan results for calculation
-    const results = await ScanResult.find({ scanId: latestScan._id });
+    // Fetch individual scan results for calculation from ALL these scans
+    const results = await ScanResult.find({ scanId: { $in: scanIds } });
     const totalScannedAssets = results.length;
 
     let pqcReady = 0;
@@ -197,19 +191,24 @@ router.get("/:domainId/summary", async (req, res) => {
     // ------------------------------------------------------------
     // FETCH OR GENERATE LLM RECOMMENDATION
     // ------------------------------------------------------------
-    let recommendation = await DomainRecommendation.findOne({ scanId: latestScan._id });
+    let recommendation = await DomainRecommendation.findOne({ domainId });
 
-    if (!recommendation) {
+    if (!recommendation || recommendation.basedOnScanCount !== completedScans.length) {
       const llmRec = await generateDomainRecommendation(summary);
-      recommendation = await DomainRecommendation.create({
-        domainId,
-        scanId: latestScan._id,
-        summary: llmRec.summary,
-        riskLevel: llmRec.risk_level,
-        migrationStrategy: llmRec.migration_strategy,
-        recommendedPqcKex: llmRec.recommended_pqc_kex,
-        recommendedPqcSignature: llmRec.recommended_pqc_signature
-      });
+
+      recommendation = await DomainRecommendation.findOneAndUpdate(
+        { domainId },
+        {
+          riskLevel: llmRec.risk_level,
+          summary: llmRec.summary,
+          migrationStrategy: llmRec.migration_strategy,
+          recommendedPqcKex: llmRec.recommended_pqc_kex,
+          recommendedPqcSignature: llmRec.recommended_pqc_signature,
+          basedOnScanCount: completedScans.length,
+          generatedAt: new Date()
+        },
+        { upsert: true, new: true }
+      );
     }
 
     res.json({
@@ -238,13 +237,14 @@ router.get("/:domainId/summary", async (req, res) => {
 router.get("/:domainId/crypto-inventory", async (req, res) => {
   try {
     const domainId = req.params.domainId;
-    const latestScan = await Scan.findOne({ domainId }).sort({ startedAt: -1 });
+    const completedScans = await Scan.find({ domainId, status: "completed" });
 
-    if (!latestScan) {
+    if (!completedScans || completedScans.length === 0) {
       return res.status(404).json({ message: "No scan found" });
     }
 
-    const results = await ScanResult.find({ scanId: latestScan._id });
+    const scanIds = completedScans.map(s => s._id);
+    const results = await ScanResult.find({ scanId: { $in: scanIds } });
     const algorithms = new Set();
 
     results.forEach(r => {

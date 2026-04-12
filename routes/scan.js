@@ -78,7 +78,7 @@ router.post("/", async (req, res) => {
       return res.status(404).json({ message: "Assets not found" });
     }
 
-    // Map host -> assetId
+    // Map host+ip -> assetId
     const assetMap = {};
     selectedAssets.forEach(asset => {
       assetMap[asset.host] = asset._id;

@@ -103,7 +103,7 @@ cron.schedule('* * * * *', async () => {
                 await scanRecord.save();
 
                 // ==========================================
-                // 🔥 STEP 3: CORRECTED CBOM GENERATION
+                // STEP 3: CORRECTED CBOM GENERATION
                 // ==========================================
 
                 // 1. Fetch from DB (Ensures we have the full structure including Mongoose virtuals/objects)

@@ -12,7 +12,7 @@ const Scan = require("../models/Scan");
 const ScanResult = require("../models/ScanResult");
 const Asset = require("../models/Asset");
 const axios = require("axios");
-const buildStrictPrompt = require("../services/generateChatPrompt");
+const { handleUserQuery } = require("../services/generateChatPrompt");
 const Domain = require("../models/Domain");
 const Chat = require("../models/Chat");
 require("dotenv").config();
@@ -142,8 +142,7 @@ router.post("/chat", async (req, res) => {
       }))
     };
 
-    const prompt = buildStrictPrompt(context, question);
-
+    const response = await handleUserQuery(context, question, async (prompt) => {
     const llmResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -151,7 +150,7 @@ router.post("/chat", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: "You are a senior cybersecurity auditor specializing in PQC migration."
+            content: "You are a cybersecurity assistant. Follow the instructions in the user prompt strictly."
           },
           {
             role: "user",
@@ -167,7 +166,10 @@ router.post("/chat", async (req, res) => {
       }
     );
 
-    const answer = llmResponse.data.choices[0].message.content;
+    return llmResponse.data.choices[0].message.content;
+  });
+
+    const answer = response;
 
     // Save chat in DB
     const chat = await Chat.create({

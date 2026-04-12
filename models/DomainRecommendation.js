@@ -18,9 +18,9 @@ const DomainRecommendationSchema = new mongoose.Schema({
     ref: "Domain",
     required: true
   },
-  scanId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Scan"
+  basedOnScanCount: {
+    type: Number,
+    required: true
   },
   riskLevel: String,
   summary: String,

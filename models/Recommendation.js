@@ -4,7 +4,6 @@
  * @property {ObjectId} scanResultId - Reference to the specific scan result.
  * @property {string} host - Hostname of the asset.
  * @property {number} pqcScore - Quantum readiness score (0-1).
- * @property {string} riskLevel - Risk classification (LOW/MEDIUM/HIGH).
  * @property {string} recommendations - Human-readable explanation of the risk.
  * @property {Array<string>} migrationSteps - Concrete steps for PQC migration.
  * @property {string} recommendedPqcKex - Suggested Post-Quantum Key Exchange.

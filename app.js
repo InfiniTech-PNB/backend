@@ -32,9 +32,9 @@ app.use(express.json()); // Parses incoming requests with JSON payloads
 app.use(express.urlencoded({ extended: true })); // Parses urlencoded bodies
 
 // CORS Configuration: Allows communication from Frontend (5173) and Python services (8000)
-const apiUrl=process.env.API_URL;
+// const apiUrl=process.env.API_URL;
 app.use(cors({
-    origin: apiUrl,
+    origin: "http://localhost:5173",
     credentials: true
 }));
 require('./services/reportWorker');

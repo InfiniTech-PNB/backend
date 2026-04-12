@@ -8,14 +8,12 @@ const CbomSchema = new mongoose.Schema({
     required: true
   },
 
-  // 🔥 NEW → mode support
   mode: {
     type: String,
     enum: ["aggregate", "per_asset"],
     required: true
   },
 
-  // 🔥 NEW → asset list (for aggregate)
   assets: [String],
 
   // =========================

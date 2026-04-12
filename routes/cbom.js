@@ -14,7 +14,7 @@ const ScanResult = require("../models/ScanResult");
 const Cbom = require("../models/Cbom");
 const cbomToHtml = require("../services/cbomToHtml");
 const generatePdf = require("../services/generatePdf");
-
+require("dotenv").config();
 const { toCamel, toSnake } = require("../utils/caseConverter");
 
 // Apply authentication to all CBOM routes
@@ -48,12 +48,14 @@ router.post("/:id", async (req, res) => {
   try {
     const scanId = req.params.id;
     const { mode = "aggregate" } = req.body;
-
+    console.log(mode);
     // 🔥 Check existing CBOM with SAME mode
-    const existingCbom = await Cbom.findOne({ scanId, mode });
+    const cbomMode = (mode === "perAsset" || mode === "per_asset") ? "per_asset" : "aggregate";
+    const existingCbom = await Cbom.findOne({ scanId, mode: cbomMode });
     if (existingCbom) {
       return res.json({
         cbomId: existingCbom._id,
+        mode: cbomMode,
         cbom: existingCbom
       });
     }
@@ -92,16 +94,15 @@ router.post("/:id", async (req, res) => {
     const apiUrl=process.env.API_URL;
     const response = await axios.post(`${apiUrl}:8000/cbom`, {
       results: snakeScanResults,
-      mode: mode === "perAsset" ? "per_asset" : "aggregate"
+      mode: cbomMode
     });
-
+    console.log(response.data);
     const cbomDataRaw = response.data;
     const cbomData = toCamel(cbomDataRaw);
 
     // =========================
     // 🔥 STORE CBOM (CAMELCASE)
     // =========================
-    const cbomMode = (mode === "perAsset" || mode === "per_asset") ? "per_asset" : "aggregate";
 
     let algorithms = [];
     let keys = [];
@@ -182,9 +183,11 @@ router.post("/:id", async (req, res) => {
  */
 router.get("/:scanId/cbom", async (req, res) => {
   try {
-    const cbom = await Cbom.findOne({
-      scanId: req.params.scanId
-    });
+    const { mode } = req.query;
+    const query = { scanId: req.params.scanId };
+    if (mode) query.mode = (mode === "perAsset" || mode === "per_asset") ? "per_asset" : "aggregate";
+
+    const cbom = await Cbom.findOne(query);
 
     if (!cbom) {
       return res.status(404).json({
@@ -213,9 +216,11 @@ router.get("/:scanId/cbom", async (req, res) => {
  */
 router.get("/:scanId/cbom/pdf", async (req, res) => {
   try {
-    const cbom = await Cbom.findOne({
-      scanId: req.params.scanId
-    });
+    const { mode } = req.query;
+    const query = { scanId: req.params.scanId };
+    if (mode) query.mode = (mode === "perAsset" || mode === "per_asset") ? "per_asset" : "aggregate";
+
+    const cbom = await Cbom.findOne(query);
 
     if (!cbom) {
       return res.status(404).json({
