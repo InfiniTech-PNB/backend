@@ -21,6 +21,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.2",
     "puppeteer": "^24.39.1",
-    "redis": "^5.11.0"
+    "redis": "^5.11.0",
+    "uuid": "^13.0.0"
   }
 }

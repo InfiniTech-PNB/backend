@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true })); // Parses urlencoded bodies
 // const apiUrl=process.env.API_URL;
 const allowedOrigins = [
   "http://localhost:5173",
-  "http://ec2-16-112-159-207.ap-south-2.compute.amazonaws.com"
+  "https://kavachai.mzdev.in"
 ];
 
 app.use(cors({

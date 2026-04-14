@@ -13,7 +13,7 @@ const Domain = require("../models/Domain");
 const Asset = require("../models/Asset");
 const Service = require("../models/Service");
 const { toCamel, toSnake } = require("../utils/caseConverter");
-
+const { v4: uuidv4 } = require("uuid");
 router.use(authMiddleware);
 
 /**
@@ -47,67 +47,75 @@ router.use(authMiddleware);
  * }
  */
 router.post("/:id/discover", async (req, res) => {
+  const jobId = uuidv4();
+
+  // respond immediately
+  res.json({ message: "Job started", jobId });
+
   try {
     const domain = await Domain.findById(req.params.id);
 
     if (!domain) {
-      return res.status(404).json({ message: "We couldn't find that domain in our records." });
+      console.error("Domain not found");
+      return;
     }
 
     const domainName = domain.domainName;
-    const apiUrl=process.env.API_URL;
+    const apiUrl = process.env.API_URL1;
 
-    // We ask the discovery service (running locally) to do the heavy lifting
-    const result = await axios.post(
-      `${apiUrl}:8000/discover`,
-      { domain: domainName },
-      { headers: { "Content-Type": "application/json" } }
-    );
+    // run background job
+    setTimeout(async () => {
+      try {
+        const result = await axios.post(
+          `${apiUrl}/discover`,
+          { domain: domainName, jobId: jobId },
+          { headers: { "Content-Type": "application/json" } }
+        );
 
-    if (result.status !== 200) {
-      throw new Error("The background discovery service encountered an error.");
-    }
+        const data = toCamel(result.data);
 
-    const data = toCamel(result.data);
+        // save results
+        const assets = [];
 
-    // We save each discovered asset and its open services (ports)
-    const assets = [];
-    for (const assetData of data.assets) {
-      const asset = await Asset.findOneAndUpdate(
-        { domainId: domain._id, host: assetData.host, ip: assetData.ip },
-        {
-          domainId: domain._id,
-          host: assetData.host,
-          ip: assetData.ip,
-          assetType: assetData.assetType || "UNKNOWN"
-        },
-        { upsert: true, returnDocument: "after" }
-      );
+        for (const assetData of data.assets) {
+          const asset = await Asset.findOneAndUpdate(
+            {
+              domainId: domain._id,
+              host: assetData.host,
+              ip: assetData.ip
+            },
+            {
+              domainId: domain._id,
+              host: assetData.host,
+              ip: assetData.ip,
+              assetType: assetData.assetType || "UNKNOWN"
+            },
+            { upsert: true, returnDocument: "after" }
+          );
 
-      assets.push(asset);
+          assets.push(asset);
 
-      if (assetData.services && assetData.services.length > 0) {
-        const servicesToInsert = assetData.services.map(svc => ({
-          assetId: asset._id,
-          port: svc.port,
-          protocolName: svc.protocolName
-        }));
+          if (assetData.services?.length > 0) {
+            const servicesToInsert = assetData.services.map(svc => ({
+              assetId: asset._id,
+              port: svc.port,
+              protocolName: svc.protocolName
+            }));
 
-        // We clear out old port info for this asset to keep things fresh
-        await Service.deleteMany({ assetId: asset._id });
-        await Service.insertMany(servicesToInsert);
+            await Service.deleteMany({ assetId: asset._id });
+            await Service.insertMany(servicesToInsert);
+          }
+        }
+
+        console.log(`✅ Discovery saved for ${domainName} (${assets.length} assets)`);
+
+      } catch (err) {
+        console.error("❌ Background discovery failed:", err.message);
       }
-    }
-
-    res.json({
-      message: "Assets discovered successfully",
-      total: assets.length,
-      assets: assets
-    });
+    }, 500);
 
   } catch (error) {
-    console.error("Discovery error:", error);
-    res.status(500).json({ message: error.message });
+    console.error("Discovery setup error:", error.message);
   }
 });
 

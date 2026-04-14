@@ -91,8 +91,8 @@ router.post("/:id", async (req, res) => {
     // =========================
     // 🔥 CALL FASTAPI
     // =========================
-    const apiUrl=process.env.API_URL;
-    const response = await axios.post(`${apiUrl}:8000/cbom`, {
+    const apiUrl=process.env.API_URL1;
+    const response = await axios.post(`${apiUrl}/cbom`, {
       results: snakeScanResults,
       mode: cbomMode
     });

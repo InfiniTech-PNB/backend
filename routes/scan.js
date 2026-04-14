@@ -108,11 +108,11 @@ router.post("/", async (req, res) => {
       ip: asset.ip,
       services: serviceMap[asset._id] || []
     }));
-
-    const apiUrl=process.env.API_URL;
+    const apiPqc = process.env.API_URL2;
+    const apiCrypto=process.env.API_URL1;
 
     // Call Python scanner
-    const response = await axios.post(`${apiUrl}:8000/scan`, {
+    const response = await axios.post(`${apiCrypto}/scan`, {
       assets: scannerAssets,
       scan_type: scanType || "soft"
     });
@@ -161,7 +161,7 @@ router.post("/", async (req, res) => {
         const mlFeatures = deriveMLFeatures(camelResult);
 
         // Call ML scoring API
-        const mlResponse = await axios.post(`${apiUrl}:9000/pqc-score`, {
+        const mlResponse = await axios.post(`${apiPqc}/pqc-score`, {
           features: mlFeatures
         });
 
