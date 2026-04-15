@@ -69,7 +69,7 @@ router.post("/:id/discover", async (req, res) => {
         const result = await axios.post(
           `${apiUrl}/discover`,
           { domain: domainName, jobId: jobId },
-          { headers: { "Content-Type": "application/json" }, timeout: 300000 }
+          { headers: { "Content-Type": "application/json" }, timeout: 600000 }
         );
 
         const data = toCamel(result.data);
